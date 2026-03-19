@@ -22,7 +22,8 @@ export function requireRole(request: Request, role: AuthRole): { ok: true } | { 
   const current = getRoleFromRequest(request);
   if (!current) {
     const to = role === 'admin' ? '/login?role=admin' : '/login?role=view';
-    return { ok: false, redirect: Response.redirect(to, 302) };
+    const url = new URL(to, request.url);
+    return { ok: false, redirect: Response.redirect(url.toString(), 302) };
   }
   if (role === 'admin' && current !== 'admin') {
     return { ok: false, redirect: new Response('Forbidden', { status: 403 }) };
