@@ -31,9 +31,10 @@ export function requireRole(request: Request, role: AuthRole): { ok: true } | { 
   return { ok: true };
 }
 
-export function cookieForRole(role: AuthRole) {
+export function cookieForRole(role: AuthRole, opts?: { secure?: boolean }) {
   const maxAge = 60 * 60 * 12; // 12 hours
-  return `bunrun_role=${role}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Secure`;
+  const secure = opts?.secure ?? false;
+  return `bunrun_role=${role}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 
 export function clearRoleCookie() {
