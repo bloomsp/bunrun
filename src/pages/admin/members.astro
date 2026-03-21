@@ -20,7 +20,7 @@ let perms: Permission[] = [];
 let dbError: string | null = null;
 
 try {
-  const { DB } = getEnv(Astro.locals);
+  const DB = await getDB();
   members = (await DB.prepare('SELECT id, name, active, all_areas FROM members ORDER BY name COLLATE NOCASE ASC').all())
     .results as Member[];
   areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
@@ -135,4 +135,5 @@ function allowedAreasFor(memberId: number) {
       )
     }
   </div>
+</Layout>
 </Layout>

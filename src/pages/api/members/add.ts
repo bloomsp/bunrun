@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
-import { getEnv } from '../../../lib/db';
+import { getDB } from '../../../lib/db';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
@@ -10,7 +10,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const name = (form.get('name') || '').toString().trim();
   if (!name) return new Response('Name is required', { status: 400 });
 
-  const { DB } = getEnv(locals);
+  const DB = await getDB();
 
   await DB.prepare('INSERT OR IGNORE INTO members (name, active) VALUES (?, 1)')
     .bind(name)
@@ -18,3 +18,4 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   return Response.redirect('/admin/members', 302);
 };
+

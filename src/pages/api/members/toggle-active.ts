@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
-import { getEnv } from '../../../lib/db';
+import { getDB } from '../../../lib/db';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
@@ -14,8 +14,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response('Invalid memberId', { status: 400 });
   }
 
-  const { DB } = getEnv(locals);
+  const DB = await getDB();
   await DB.prepare('UPDATE members SET active=? WHERE id=?').bind(active, memberId).run();
 
   return Response.redirect('/admin/members', 302);
 };
+

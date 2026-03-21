@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
-import { getEnv } from '../../../lib/db';
+import { getDB } from '../../../lib/db';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const guard = requireRole(request, 'admin');
@@ -14,7 +14,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response('Invalid memberId', { status: 400 });
   }
 
-  const { DB } = getEnv(locals);
+  const DB = await getDB();
 
   // Force restricted mode.
   await DB.prepare('UPDATE members SET all_areas=0 WHERE id=?').bind(memberId).run();
