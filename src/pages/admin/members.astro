@@ -3,40 +3,136 @@ export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
 import { requireRole } from '../../lib/auth';
+import { getEnv } from '../../lib/db';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
+
+type Member = { id: number; name: string; active: number; all_areas: number };
+
+type Area = { key: string; label: string };
+
+type Permission = { member_id: number; area_key: string };
+
+let members: Member[] = [];
+let areas: Area[] = [];
+let perms: Permission[] = [];
+let dbError: string | null = null;
+
+try {
+  const { DB } = getEnv(Astro.locals);
+  members = (await DB.prepare('SELECT id, name, active, all_areas FROM members ORDER BY name COLLATE NOCASE ASC').all())
+    .results as Member[];
+  areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
+  perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as Permission[];
+} catch (e: any) {
+  dbError = e?.message ?? String(e);
+}
+
+function allowedAreasFor(memberId: number) {
+  return new Set(perms.filter((p) => p.member_id === memberId).map((p) => p.area_key));
+}
 ---
 
 <Layout title="Members | Bunrun">
-  <div class="mx-auto max-w-3xl px-4 py-10">
+  <div class="mx-auto max-w-5xl px-4 py-10">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Members</h1>
       <a class="text-sm underline" href="/admin">Back</a>
     </div>
 
-    <p class="mt-2 text-slate-700">Add or deactivate members. (Alphabetical)</p>
+    <p class="mt-2 text-slate-700">
+      Add/deactivate members and manage which areas each person can work (applies to home area and break coverage).
+    </p>
 
     <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 class="text-lg font-medium">Add member</h2>
       <form class="mt-3 flex gap-2" method="post" action="/api/members/add">
-        <input
-          class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-          name="name"
-          placeholder="Name"
-          required
-        />
+        <input class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="name" placeholder="Name" required />
         <button class="rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800" type="submit">
           Add
         </button>
       </form>
     </div>
 
-    <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 class="text-lg font-medium">Current members</h2>
-      <p class="mt-2 text-sm text-slate-600">
-        This page will list members from D1 once the DB binding is configured.
-      </p>
-    </div>
+    {
+      dbError ? (
+        <div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
+          <div class="font-medium">DB not configured yet</div>
+          <div class="mt-2 text-sm">{dbError}</div>
+          <div class="mt-3 text-sm">
+            Once the Cloudflare D1 binding <code class="rounded bg-white px-1">DB</code> is configured and migrations are applied,
+            this page will populate.
+          </div>
+        </div>
+      ) : (
+        <div class="mt-6 space-y-4">
+          {members.map((m) => {
+            const allowed = allowedAreasFor(m.id);
+            return (
+              <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div class="text-lg font-semibold">{m.name}</div>
+                    <div class="mt-1 text-sm text-slate-600">
+                      Status: {m.active ? 'Active' : 'Inactive'}
+                      {' · '}
+                      Areas: {m.all_areas ? 'All areas' : 'Restricted'}
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <form method="post" action="/api/members/toggle-active">
+                      <input type="hidden" name="memberId" value={m.id} />
+                      <input type="hidden" name="active" value={m.active ? '0' : '1'} />
+                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">
+                        {m.active ? 'Deactivate' : 'Reactivate'}
+                      </button>
+                    </form>
+
+                    <form method="post" action="/api/members/set-all-areas">
+                      <input type="hidden" name="memberId" value={m.id} />
+                      <input type="hidden" name="allAreas" value={m.all_areas ? '0' : '1'} />
+                      <button
+                        class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+                        type="submit"
+                        disabled={!m.active}
+                      >
+                        {m.all_areas ? 'Restrict areas…' : 'Allow all areas'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {!m.all_areas && (
+                  <form class="mt-4" method="post" action="/api/members/set-areas">
+                    <input type="hidden" name="memberId" value={m.id} />
+                    <div class="text-sm font-medium text-slate-800">Allowed areas</div>
+                    <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      {areas.map((a) => (
+                        <label class="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                          <input type="checkbox" name="areas" value={a.key} checked={allowed.has(a.key)} />
+                          <span>{a.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div class="mt-3 flex items-center gap-2">
+                      <button
+                        class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                        type="submit"
+                        disabled={!m.active}
+                      >
+                        Save areas
+                      </button>
+                      <div class="text-sm text-slate-600">(Applies to home area and break coverage.)</div>
+                    </div>
+                  </form>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )
+    }
   </div>
 </Layout>
