@@ -7,6 +7,11 @@ import { requireRole } from '../../../lib/auth';
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
 
+const picked = Astro.url.searchParams.get('date');
+if (picked && /^\d{4}-\d{2}-\d{2}$/.test(picked)) {
+  return Response.redirect(`/admin/schedule/${picked}`, 303);
+}
+
 const today = new Date();
 const yyyy = today.getFullYear();
 const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -34,16 +39,5 @@ const defaultDate = `${yyyy}-${mm}-${dd}`;
       </button>
     </form>
 
-    <script>
-      const form = document.currentScript?.previousElementSibling;
-      if (form && form.tagName === 'FORM') {
-        form.addEventListener('submit', (e) => {
-          const date = form.querySelector('input[name="date"]')?.value;
-          if (!date) return;
-          e.preventDefault();
-          window.location.href = `/admin/schedule/${date}`;
-        });
-      }
-    </script>
   </div>
 </Layout>
