@@ -34,15 +34,16 @@ const defaultDate = `${yyyy}-${mm}-${dd}`;
       </button>
     </form>
 
-    {Astro.url.searchParams.get('date') && (
-      <div class="mt-6">
-        <a
-          class="underline"
-          href={`/admin/schedule/${Astro.url.searchParams.get('date')}`}
-        >
-          Go to schedule
-        </a>
-      </div>
-    )}
+    <script>
+      const form = document.currentScript?.previousElementSibling;
+      if (form && form.tagName === 'FORM') {
+        form.addEventListener('submit', (e) => {
+          const date = form.querySelector('input[name="date"]')?.value;
+          if (!date) return;
+          e.preventDefault();
+          window.location.href = `/admin/schedule/${date}`;
+        });
+      }
+    </script>
   </div>
 </Layout>
