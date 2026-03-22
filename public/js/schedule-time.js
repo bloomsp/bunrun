@@ -113,6 +113,8 @@ function init() {
     const startVal = startOut ? startOut.value : '';
     const endVal = endOut ? endOut.value : '';
 
+    const computedEl = document.getElementById('shiftComputed');
+
     const parse = (hhmm) => {
       const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
       if (!m) return null;
@@ -121,6 +123,18 @@ function init() {
 
     const s = parse(startVal);
     const e = parse(endVal);
+
+    // Computed helper line
+    if (computedEl) {
+      if (s != null && e != null) {
+        const dur = e - s;
+        const h = Math.floor(Math.max(dur, 0) / 60);
+        const m = Math.max(dur, 0) % 60;
+        computedEl.textContent = `Computed: ${startVal} → ${endVal} (${h}h ${String(m).padStart(2, '0')}m)`;
+      } else {
+        computedEl.textContent = '';
+      }
+    }
 
     let msg = '';
     let type = '';
