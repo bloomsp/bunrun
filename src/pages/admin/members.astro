@@ -97,6 +97,8 @@ function allowedAreasFor(memberId: number) {
                     Status: {m.active ? 'Active' : 'Inactive'}
                     {' · '}
                     Areas: {m.all_areas ? 'All areas' : 'Restricted'}
+                    {' · '}
+                    Default area: {m.default_area_key ? (areas.find((a) => a.key === m.default_area_key)?.label ?? m.default_area_key) : '—'}
                   </div>
 
                   {!m.all_areas && (
