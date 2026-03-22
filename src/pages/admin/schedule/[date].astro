@@ -398,6 +398,24 @@ function rangeFor(start: string, duration: number) {
 
     <div id="breaks" class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 class="text-lg font-medium">Break planning</h2>
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        <form method="post" action="/api/breaks/autogen-all">
+          <input type="hidden" name="date" value={date} />
+          <input type="hidden" name="mode" value="overwrite" />
+          <button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+            Auto-generate ALL (overwrite)
+          </button>
+        </form>
+
+        <form method="post" action="/api/breaks/autogen-all">
+          <input type="hidden" name="date" value={date} />
+          <input type="hidden" name="mode" value="missing" />
+          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" type="submit">
+            Auto-generate missing only
+          </button>
+        </form>
+      </div>
       <p class="mt-2 text-sm text-slate-600">Add breaks and assign cover.</p>
 
       <div class="mt-6 space-y-8">
