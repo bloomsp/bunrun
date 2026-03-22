@@ -22,6 +22,6 @@ export const POST: APIRoute = async ({ request }) => {
     await DB.prepare('DELETE FROM member_area_permissions WHERE member_id=?').bind(memberId).run();
   }
 
-  return Response.redirect('/admin/members', 302);
+  return new Response(null, { status: 303, headers: { Location: '/admin/members' } });
 };
 

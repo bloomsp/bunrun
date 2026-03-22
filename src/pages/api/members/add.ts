@@ -16,6 +16,6 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(name)
     .run();
 
-  return Response.redirect('/admin/members', 302);
+  return new Response(null, { status: 303, headers: { Location: '/admin/members' } });
 };
 

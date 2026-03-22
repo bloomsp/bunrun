@@ -50,5 +50,5 @@ export const POST: APIRoute = async ({ request }) => {
   headers.append('Set-Cookie', cookieForRole(role, { secure: secureCookie }));
   headers.set('Location', role === 'admin' ? '/admin' : '/view');
 
-  return new Response(null, { status: 302, headers });
+  return new Response(null, { status: 303, headers });
 };

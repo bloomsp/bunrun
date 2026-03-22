@@ -36,5 +36,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .run();
   }
 
-  return Response.redirect('/admin/members', 302);
+  const returnTo = (form.get('returnTo') || '/admin/members').toString();
+  return new Response(null, { status: 303, headers: { Location: returnTo } });
 };
