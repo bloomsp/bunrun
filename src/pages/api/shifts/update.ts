@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -15,22 +16,21 @@ export const POST: APIRoute = async ({ request }) => {
   const startTime = (form.get('startTime') || '').toString();
   const endTime = (form.get('endTime') || '').toString();
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response('Invalid date', { status: 400 });
-  if (!Number.isFinite(shiftId) || shiftId <= 0) return new Response('Invalid shiftId', { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
+  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid shift' });
 
   const startMin = parseHHMM(startTime);
   const endMin = parseHHMM(endTime);
-  if (startMin == null || endMin == null) return new Response('Invalid time', { status: 400 });
-  if (endMin <= startMin) return new Response('End time must be after start time', { status: 400 });
+  if (startMin == null || endMin == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid time' });
+  if (endMin <= startMin) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'End time must be after start time (same day).' });
 
   const shiftMinutes = endMin - startMin;
-  if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}`, { error: 'Shift exceeds 10 hours max.' });
+  if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift exceeds 10 hours max.' });
 
   const DB = await getDB();
 
-  // Load current shift for schedule/member context
   const current = (await DB.prepare('SELECT schedule_id, member_id FROM shifts WHERE id=?').bind(shiftId).first()) as any;
-  if (!current) return new Response('Shift not found', { status: 404 });
+  if (!current) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift not found' });
 
   await DB.prepare(
     'UPDATE shifts SET home_area_key=?, status_key=?, start_time=?, end_time=?, shift_minutes=? WHERE id=?'
@@ -53,9 +53,7 @@ export const POST: APIRoute = async ({ request }) => {
       .run();
   }
 
-  return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}` } });
-};
- updated' });
-};
-ule/${date}` } });
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, {
+    notice: statusKey === 'sick' ? 'Shift updated (Sick applied)' : 'Shift updated'
+  });
 };

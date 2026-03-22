@@ -52,7 +52,7 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(scheduleId, memberId, homeAreaKey, statusKey, startTime, endTime, shiftMinutes)
     .run();
 
-  return redirectWithMessage(`/admin/schedule/${date}`, { notice: 'Shift added' });
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added' });
 };
 tatus: 303, headers: { Location: `/admin/schedule/${date}` } });
 };

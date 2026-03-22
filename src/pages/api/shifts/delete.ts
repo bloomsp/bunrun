@@ -16,7 +16,7 @@ export const POST: APIRoute = async ({ request }) => {
   const DB = await getDB();
   await DB.prepare('DELETE FROM shifts WHERE id=?').bind(shiftId).run();
 
-  return redirectWithMessage(`/admin/schedule/${date}`, { notice: 'Shift deleted' });
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift deleted' });
 };
 { status: 303, headers: { Location: `/admin/schedule/${date}` } });
 };
