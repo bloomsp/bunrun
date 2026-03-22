@@ -22,8 +22,8 @@ export function requireRole(request: Request, role: AuthRole): { ok: true } | { 
   const current = getRoleFromRequest(request);
   if (!current) {
     const to = role === 'admin' ? '/login/admin' : '/login/view';
-    const url = new URL(to, request.url);
-    return { ok: false, redirect: Response.redirect(url.toString(), 302) };
+    // Use a relative redirect for maximum compatibility in the Pages/Workers runtime.
+    return { ok: false, redirect: new Response(null, { status: 303, headers: { Location: to } }) };
   }
   if (role === 'admin' && current !== 'admin') {
     return { ok: false, redirect: new Response('Forbidden', { status: 403 }) };
