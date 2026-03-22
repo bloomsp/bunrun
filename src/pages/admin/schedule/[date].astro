@@ -1,0 +1,222 @@
+---
+export const prerender = false;
+
+import Layout from '../../../layouts/Layout.astro';
+import { requireRole } from '../../../lib/auth';
+import { getDB } from '../../../lib/db';
+import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
+
+const guard = requireRole(Astro.request, 'admin');
+if (!guard.ok) return guard.redirect;
+
+const date = Astro.params.date ?? '';
+if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  return new Response('Invalid date', { status: 400 });
+}
+
+type Member = {
+  id: number;
+  name: string;
+  active: number;
+  all_areas: number;
+};
+
+type Area = { key: string; label: string };
+
+type ShiftRow = {
+  id: number;
+  member_id: number;
+  name: string;
+  home_area_key: string;
+  status_key: string;
+  start_time: string;
+  end_time: string | null;
+  shift_minutes: number;
+};
+
+type Status = { key: string; label: string; blocks_coverage: number };
+
+const DB = await getDB();
+
+// Ensure schedule exists
+await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
+const schedule = (await DB.prepare('SELECT id, date FROM schedules WHERE date=?').bind(date).first()) as any;
+const scheduleId = schedule.id as number;
+
+const shifts = (await DB.prepare(
+  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.start_time, s.end_time, s.shift_minutes
+   FROM shifts s
+   JOIN members m ON m.id = s.member_id
+   WHERE s.schedule_id=?
+   ORDER BY m.name COLLATE NOCASE ASC`
+).bind(scheduleId).all()).results as ShiftRow[];
+
+const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
+
+const members = (await DB.prepare(
+  'SELECT id, name, active, all_areas FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
+).all()).results as Member[];
+
+const areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
+
+const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
+  .results as Status[];
+
+const op = operatingHoursFor(date);
+
+function minutesOrNull(v: string | null) {
+  if (!v) return null;
+  return parseHHMM(v);
+}
+
+function warningsForShift(start: string, end: string, minutes: number): string[] {
+  const out: string[] = [];
+  if (minutes > 9 * 60) out.push('Long shift (> 9h)');
+  if (minutes > 10 * 60) out.push('Shift exceeds 10h max');
+  if (op) {
+    const s = parseHHMM(start);
+    const e = parseHHMM(end);
+    if (s != null && e != null) {
+      if (s < op.open || e > op.close) out.push('Outside operating hours');
+    }
+  }
+  return out;
+}
+---
+
+<Layout title={`Schedule ${date} | Bunrun`}>
+  <div class="mx-auto max-w-5xl px-4 py-10">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Schedule</h1>
+        <div class="mt-1 text-slate-700">{date}</div>
+      </div>
+      <div class="flex items-center gap-3">
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin/schedule">Change date</a>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin">Admin</a>
+      </div>
+    </div>
+
+    {op && (
+      <div class="mt-3 text-sm text-slate-600">
+        Operating hours: {Math.floor(op.open / 60).toString().padStart(2, '0')}:{String(op.open % 60).padStart(2, '0')}
+        – {Math.floor(op.close / 60).toString().padStart(2, '0')}:{String(op.close % 60).padStart(2, '0')}
+      </div>
+    )}
+
+    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-medium">Add shift</h2>
+      <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/api/shifts/upsert">
+        <input type="hidden" name="date" value={date} />
+
+        <label class="block sm:col-span-2">
+          <div class="text-sm font-medium text-slate-800">Member</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="memberId" required>
+            <option value="" selected>Select…</option>
+            {members
+              .filter((m) => !assignedMemberIds.has(m.id))
+              .map((m) => (
+                <option value={m.id}>{m.name}</option>
+              ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Area</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
+            {areas.map((a) => (
+              <option value={a.key}>{a.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Status</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
+            {statuses.map((s) => (
+              <option value={s.key}>{s.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Start</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required />
+        </label>
+
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">End</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" required />
+        </label>
+
+        <div class="sm:col-span-6">
+          <button class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800" type="submit">
+            Add shift
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-medium">Shifts</h2>
+      <div class="mt-4 overflow-x-auto">
+        <table class="w-full min-w-[900px] border-separate border-spacing-y-2 text-sm">
+          <thead>
+            <tr class="text-left text-slate-600">
+              <th class="px-3">Member</th>
+              <th class="px-3">Area</th>
+              <th class="px-3">Status</th>
+              <th class="px-3">Start</th>
+              <th class="px-3">End</th>
+              <th class="px-3">Length</th>
+              <th class="px-3">Warnings</th>
+              <th class="px-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {shifts.map((s) => {
+              const endMin = minutesOrNull(s.end_time);
+              const startMin = parseHHMM(s.start_time) ?? 0;
+              const computed = endMin != null ? endMin - startMin : s.shift_minutes;
+              const warns = endMin != null ? warningsForShift(s.start_time, s.end_time!, computed) : [];
+
+              return (
+                <tr class="bg-slate-50">
+                  <td class="px-3 py-3 font-medium">{s.name}</td>
+                  <td class="px-3 py-3">{areas.find((a) => a.key === s.home_area_key)?.label ?? s.home_area_key}</td>
+                  <td class="px-3 py-3">{statuses.find((st) => st.key === s.status_key)?.label ?? s.status_key}</td>
+                  <td class="px-3 py-3">{s.start_time}</td>
+                  <td class="px-3 py-3">{s.end_time ?? '—'}</td>
+                  <td class="px-3 py-3">{formatDurationMinutes(computed)}</td>
+                  <td class="px-3 py-3">
+                    {warns.length ? (
+                      <span class="rounded bg-amber-100 px-2 py-1 text-amber-900">{warns.join(' · ')}</span>
+                    ) : (
+                      <span class="text-slate-500">—</span>
+                    )}
+                  </td>
+                  <td class="px-3 py-3">
+                    <form method="post" action="/api/shifts/delete" onsubmit="return confirm('Delete this shift?')">
+                      <input type="hidden" name="shiftId" value={s.id} />
+                      <input type="hidden" name="date" value={date} />
+                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" type="submit">
+                        Delete
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {shifts.length === 0 && <div class="mt-4 text-sm text-slate-600">No shifts yet.</div>}
+    </div>
+
+    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-medium">Break planning (next)</h2>
+      <p class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
+    </div>
+  </div>
+</Layout>

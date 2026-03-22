@@ -1,0 +1,48 @@
+---
+export const prerender = false;
+
+import Layout from '../../../layouts/Layout.astro';
+import { requireRole } from '../../../lib/auth';
+
+const guard = requireRole(Astro.request, 'admin');
+if (!guard.ok) return guard.redirect;
+
+const today = new Date();
+const yyyy = today.getFullYear();
+const mm = String(today.getMonth() + 1).padStart(2, '0');
+const dd = String(today.getDate()).padStart(2, '0');
+const defaultDate = `${yyyy}-${mm}-${dd}`;
+---
+
+<Layout title="Schedule | Bunrun">
+  <div class="mx-auto max-w-3xl px-4 py-10">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold tracking-tight">Schedule</h1>
+      <a class="text-sm underline" href="/admin">Back</a>
+    </div>
+
+    <p class="mt-2 text-slate-700">Open or create the roster for a specific date.</p>
+
+    <form class="mt-6 flex flex-wrap items-end gap-3" method="get" action="/admin/schedule">
+      <label class="block">
+        <div class="text-sm font-medium text-slate-800">Date</div>
+        <input class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2" type="date" name="date" value={defaultDate} required />
+      </label>
+
+      <button class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800" type="submit">
+        Open
+      </button>
+    </form>
+
+    {Astro.url.searchParams.get('date') && (
+      <div class="mt-6">
+        <a
+          class="underline"
+          href={`/admin/schedule/${Astro.url.searchParams.get('date')}`}
+        >
+          Go to schedule
+        </a>
+      </div>
+    )}
+  </div>
+</Layout>
