@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');

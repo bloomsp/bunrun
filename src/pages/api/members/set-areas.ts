@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     (await DB.prepare('SELECT key FROM areas').all()).results.map((r: any) => r.key as string)
   );
   for (const k of areas) {
-    if (!known.has(k)) return new Response(`Unknown area: ${k}`, { status: 400 });
+    if (!known.has(k)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${k}` });
   }
 
   // Replace permissions
@@ -38,4 +38,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const returnTo = (form.get('returnTo') || '/admin/members').toString();
   return new Response(null, { status: 303, headers: { Location: returnTo } });
+};
+3, headers: { Location: returnTo } });
 };

@@ -28,7 +28,7 @@ export const POST: APIRoute = async ({ request }) => {
   const known = new Set(areaRows.map((r) => r.key as string));
 
   for (const k of selectedAreas) {
-    if (!known.has(k)) return new Response(`Unknown area: ${k}`, { status: 400 });
+    if (!known.has(k)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${k}` });
   }
   if (defaultAreaKey && !known.has(defaultAreaKey)) {
     return new Response(`Unknown default area: ${defaultAreaKey}`, { status: 400 });
@@ -58,4 +58,8 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   return new Response(null, { status: 303, headers: { Location: returnTo } });
+};
+eturnTo } });
+};
+ation: returnTo } });
 };

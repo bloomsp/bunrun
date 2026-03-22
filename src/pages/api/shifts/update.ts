@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (endMin <= startMin) return new Response('End time must be after start time', { status: 400 });
 
   const shiftMinutes = endMin - startMin;
-  if (shiftMinutes > 10 * 60) return new Response('Shift exceeds 10 hours max', { status: 400 });
+  if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}`, { error: 'Shift exceeds 10 hours max.' });
 
   const DB = await getDB();
 
@@ -54,4 +54,8 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}` } });
+};
+ updated' });
+};
+ule/${date}` } });
 };
