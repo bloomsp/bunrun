@@ -1,17 +1,19 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
   const form = await request.formData();
   const memberId = Number(form.get('memberId'));
   const areas = form.getAll('areas').map((v) => v.toString());
+  const returnTo = (form.get('returnTo') || '/admin/members').toString();
 
   if (!Number.isFinite(memberId) || memberId <= 0) {
-    return new Response('Invalid memberId', { status: 400 });
+    return redirectWithMessage('/admin/members', { error: 'Invalid member' });
   }
 
   const DB = await getDB();
@@ -19,7 +21,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // Force restricted mode.
   await DB.prepare('UPDATE members SET all_areas=0 WHERE id=?').bind(memberId).run();
 
-  // Validate provided keys against areas table
   const known = new Set(
     (await DB.prepare('SELECT key FROM areas').all()).results.map((r: any) => r.key as string)
   );
@@ -27,7 +28,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (!known.has(k)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${k}` });
   }
 
-  // Replace permissions
   await DB.prepare('DELETE FROM member_area_permissions WHERE member_id=?').bind(memberId).run();
 
   for (const k of areas) {
@@ -36,8 +36,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .run();
   }
 
-  const returnTo = (form.get('returnTo') || '/admin/members').toString();
-  return new Response(null, { status: 303, headers: { Location: returnTo } });
-};
-3, headers: { Location: returnTo } });
+  return redirectWithMessage(returnTo, { notice: 'Areas updated' });
 };

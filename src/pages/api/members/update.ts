@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -15,15 +16,14 @@ export const POST: APIRoute = async ({ request }) => {
   const returnTo = (form.get('returnTo') || '/admin/members').toString();
 
   if (!Number.isFinite(memberId) || memberId <= 0) {
-    return new Response('Invalid memberId', { status: 400 });
+    return redirectWithMessage('/admin/members', { error: 'Invalid member' });
   }
   if (!name) {
-    return new Response('Name is required', { status: 400 });
+    return redirectWithMessage('/admin/members', { error: 'Name is required' });
   }
 
   const DB = await getDB();
 
-  // Validate provided keys against areas table
   const areaRows = (await DB.prepare('SELECT key FROM areas').all()).results as any[];
   const known = new Set(areaRows.map((r) => r.key as string));
 
@@ -31,10 +31,9 @@ export const POST: APIRoute = async ({ request }) => {
     if (!known.has(k)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${k}` });
   }
   if (defaultAreaKey && !known.has(defaultAreaKey)) {
-    return new Response(`Unknown default area: ${defaultAreaKey}`, { status: 400 });
+    return redirectWithMessage('/admin/members', { error: `Unknown default area: ${defaultAreaKey}` });
   }
 
-  // If all areas selected, treat as "allow all".
   const allSelected = selectedAreas.length > 0 && selectedAreas.length === known.size;
 
   try {
@@ -42,12 +41,10 @@ export const POST: APIRoute = async ({ request }) => {
       .bind(name, allSelected ? 1 : 0, defaultAreaKey, memberId)
       .run();
   } catch (e: any) {
-    // Name is UNIQUE; surface conflict nicely.
     const msg = e?.message ?? String(e);
-    return new Response(`Could not update member: ${msg}`, { status: 409 });
+    return redirectWithMessage('/admin/members', { error: `Could not update member: ${msg}` });
   }
 
-  // Replace permissions
   await DB.prepare('DELETE FROM member_area_permissions WHERE member_id=?').bind(memberId).run();
   if (!allSelected) {
     for (const k of selectedAreas) {
@@ -57,9 +54,5 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  return new Response(null, { status: 303, headers: { Location: returnTo } });
-};
-eturnTo } });
-};
-ation: returnTo } });
+  return redirectWithMessage(returnTo, { notice: 'Member updated' });
 };

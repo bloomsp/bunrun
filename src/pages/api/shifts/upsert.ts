@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -12,8 +13,7 @@ export const POST: APIRoute = async ({ request }) => {
   const memberId = Number(form.get('memberId'));
   const homeAreaKey = (form.get('homeAreaKey') || '').toString();
   const statusKey = (form.get('statusKey') || '').toString();
-  // New schedule UI submits HH/MM pairs and a hidden HH:MM field.
-  // Prefer the hidden field if present; otherwise build from HH/MM.
+
   const startTimeRaw = (form.get('startTime') || '').toString();
   const endTimeRaw = (form.get('endTime') || '').toString();
 
@@ -25,26 +25,23 @@ export const POST: APIRoute = async ({ request }) => {
   const startTime = startTimeRaw || `${startHH}:${startMM}`;
   const endTime = endTimeRaw || `${endHH}:${endMM}`;
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response('Invalid date', { status: 400 });
-  if (!Number.isFinite(memberId) || memberId <= 0) return new Response('Invalid member', { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
+  if (!Number.isFinite(memberId) || memberId <= 0) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid member' });
 
-  // Times should be normalized HH:MM by the schedule form.
   const startMin = parseHHMM(startTime);
   const endMin = parseHHMM(endTime);
-  if (startMin == null || endMin == null) return new Response('Invalid time', { status: 400 });
-  if (endMin <= startMin) return new Response('End time must be after start time', { status: 400 });
+  if (startMin == null || endMin == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid time' });
+  if (endMin <= startMin) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'End time must be after start time (same day).' });
 
   const shiftMinutes = endMin - startMin;
-  if (shiftMinutes > 10 * 60) return new Response('Shift exceeds 10 hours max', { status: 400 });
+  if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift exceeds 10 hours max.' });
 
   const DB = await getDB();
 
-  // Ensure schedule exists
   await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
   const scheduleId = sched.id as number;
 
-  // Insert shift
   await DB.prepare(
     `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -53,10 +50,4 @@ export const POST: APIRoute = async ({ request }) => {
     .run();
 
   return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added' });
-};
-tatus: 303, headers: { Location: `/admin/schedule/${date}` } });
-};
-;
-};
-});
 };
