@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { redirectWithMessage } from '../../../lib/redirect';
 import { toHHMM } from '../../../lib/time';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -14,11 +15,11 @@ export const POST: APIRoute = async ({ request }) => {
   const mm = Number(form.get('mm'));
   const duration = Number(form.get('duration'));
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response('Invalid date', { status: 400 });
-  if (!Number.isFinite(shiftId) || shiftId <= 0) return new Response('Invalid shiftId', { status: 400 });
-  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return new Response('Invalid hour', { status: 400 });
-  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return new Response('Invalid minutes', { status: 400 });
-  if (![15, 30, 45, 60].includes(duration)) return new Response('Invalid duration', { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
+  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid shift' });
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid hour' });
+  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid minutes' });
+  if (![15, 30, 45, 60].includes(duration)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid duration' });
 
   const startTime = toHHMM(hh * 60 + mm);
 
@@ -28,10 +29,4 @@ export const POST: APIRoute = async ({ request }) => {
     .run();
 
   return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Break added' });
-};
-tus: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
-};
-n();
-
-  return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
 };
