@@ -27,5 +27,11 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(shiftId, startTime, duration)
     .run();
 
+  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Break added' });
+};
+tus: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
+};
+n();
+
   return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
 };

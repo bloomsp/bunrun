@@ -16,5 +16,9 @@ export const POST: APIRoute = async ({ request }) => {
   const DB = await getDB();
   await DB.prepare('DELETE FROM breaks WHERE id=?').bind(breakId).run();
 
-  return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
+  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Break deleted' });
+};
+s: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
+};
+});
 };

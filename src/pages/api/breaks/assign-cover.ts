@@ -37,7 +37,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!target) return new Response('Break not found', { status: 404 });
 
   const targetRange = minutesRange(target.start_time, target.duration_minutes);
-  if (!targetRange) return new Response('Invalid break time', { status: 400 });
+  if (!targetRange) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid break time' });
 
   // Load off-person shift + member area
   const offShift = (await DB.prepare(
@@ -162,4 +162,6 @@ export const POST: APIRoute = async ({ request }) => {
     .run();
 
   return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
+};
+: 303, headers: { Location: `/admin/schedule/${date}#breaks` } });
 };
