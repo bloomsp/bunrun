@@ -17,5 +17,6 @@ export default defineConfig({
   integrations: [react()],
 
   // Cloudflare Pages adapter
-  adapter: cloudflare()
+  // Use node during prerender to avoid workerd module-runner quirks.
+  adapter: cloudflare({ prerenderEnvironment: 'node' })
 });
