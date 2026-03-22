@@ -36,4 +36,33 @@ for (const name of entries) {
   await fs.cp(src, dest, { recursive: true });
 }
 
-console.log('[pages-postbuild] Copied dist/client/* -> dist/*');
+// Ensure Pages Functions entrypoint exists.
+// Cloudflare Pages looks for dist/_worker.js to enable SSR / Functions.
+const serverEntry = path.join(distDir, 'server', 'entry.mjs');
+if (!(await exists(serverEntry))) {
+  console.error('[pages-postbuild] dist/server/entry.mjs not found. SSR entrypoint missing.');
+  process.exit(1);
+}
+
+await fs.writeFile(
+  path.join(distDir, '_worker.js'),
+  `export { default } from "./server/entry.mjs";\n`,
+  'utf8'
+);
+
+// Route all requests through the worker, but let static assets be served directly.
+await fs.writeFile(
+  path.join(distDir, '_routes.json'),
+  JSON.stringify(
+    {
+      version: 1,
+      include: ['/*'],
+      exclude: ['/_astro/*', '/favicon*', '/robots.txt', '/sitemap.xml', '/assets/*']
+    },
+    null,
+    2
+  ) + '\n',
+  'utf8'
+);
+
+console.log('[pages-postbuild] Copied dist/client/* -> dist/* and wrote dist/_worker.js + dist/_routes.json');
