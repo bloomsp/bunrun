@@ -15,6 +15,8 @@ type Area = { key: string; label: string };
 type Permission = { member_id: number; area_key: string };
 
 const editId = Number(Astro.url.searchParams.get('edit') || '0');
+const notice = Astro.url.searchParams.get('notice');
+const errorMsg = Astro.url.searchParams.get('error');
 
 let members: Member[] = [];
 let areas: Area[] = [];
