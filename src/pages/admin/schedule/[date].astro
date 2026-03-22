@@ -86,7 +86,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 ---
 
 <Layout title={`Schedule ${date} | Bunrun`}>
-  <script src="/js/time-input.js?v=4" defer></script>
+  <script src="/js/time-input.js?v=5" defer></script>
   <div class="mx-auto max-w-5xl px-4 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -155,12 +155,40 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">Start</div>
-          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required />
+          <div class="mt-1 flex items-center gap-2">
+            <input
+              class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              type="number"
+              name="startHour"
+              min="0"
+              max="23"
+              step="1"
+              placeholder="6"
+              required
+            />
+            <span class="text-sm text-slate-600">:00</span>
+            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">AM</span>
+          </div>
+          <input type="hidden" name="startTime" value="" />
         </label>
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">End</div>
-          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" required />
+          <div class="mt-1 flex items-center gap-2">
+            <input
+              class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              type="number"
+              name="endHour"
+              min="0"
+              max="23"
+              step="1"
+              placeholder="3"
+              required
+            />
+            <span class="text-sm text-slate-600">:00</span>
+            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">PM</span>
+          </div>
+          <input type="hidden" name="endTime" value="" />
         </label>
 
         <div class="sm:col-span-6">
