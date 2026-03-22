@@ -76,6 +76,9 @@ for (const b of breaks) {
   breaksByShift.set(b.shift_id, arr);
 }
 
+const workingShiftIds = new Set(shifts.filter((s) => s.status_key === 'working').map((s) => s.id));
+const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
+
 const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
 
 const members = (await DB.prepare(
@@ -128,6 +131,16 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
       <div class="mt-3 text-sm text-slate-600">
         Operating hours: {Math.floor(op.open / 60).toString().padStart(2, '0')}:{String(op.open % 60).padStart(2, '0')}
         – {Math.floor(op.close / 60).toString().padStart(2, '0')}:{String(op.close % 60).padStart(2, '0')}
+      </div>
+    )}
+
+    {uncoveredBreaks.length > 0 && (
+      <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
+        <div class="font-semibold">Schedule needs attention</div>
+        <div class="mt-1 text-sm">
+          {uncoveredBreaks.length} break{uncoveredBreaks.length === 1 ? '' : 's'} {uncoveredBreaks.length === 1 ? 'is' : 'are'} missing cover.
+          <a class="ml-2 underline" href="#breaks">Review break planning</a>
+        </div>
       </div>
     )}
 
@@ -376,7 +389,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
                   </thead>
                   <tbody>
                     {rows.map((b) => (
-                      <tr class="bg-white">
+                      <tr class={b.cover_member_id == null ? 'bg-rose-50' : 'bg-white'}>
                         <td class="px-3 py-3">{b.start_time}</td>
                         <td class="px-3 py-3">{b.duration_minutes}m</td>
                         <td class="px-3 py-3">
@@ -384,7 +397,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
                             <input type="hidden" name="date" value={date} />
                             <input type="hidden" name="breakId" value={b.id} />
                             <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
-                              <option value="" selected={b.cover_member_id == null}>—</option>
+                              <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
                               {shifts
                                 .filter((cs) => cs.member_id !== s.member_id)
                                 .filter((cs) => cs.status_key === 'working')
