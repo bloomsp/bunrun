@@ -9,7 +9,7 @@ if (!guard.ok) return guard.redirect;
 
 const picked = Astro.url.searchParams.get('date');
 if (picked && /^\d{4}-\d{2}-\d{2}$/.test(picked)) {
-  return Response.redirect(`/admin/schedule/${picked}`, 303);
+  return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${picked}` } });
 }
 
 const today = new Date();
