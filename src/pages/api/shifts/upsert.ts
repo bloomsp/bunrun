@@ -18,12 +18,12 @@ export const POST: APIRoute = async ({ request }) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response('Invalid date', { status: 400 });
   if (!Number.isFinite(memberId) || memberId <= 0) return new Response('Invalid member', { status: 400 });
 
-  const startMin = parseHHMM(startTime);
-  const endMin = parseHHMM(endTime);
-  if (startMin == null || endMin == null) return new Response('Invalid time', { status: 400 });
-  if (endMin <= startMin) return new Response('End time must be after start time', { status: 400 });
+  const startParsed = parseTimeInput(startTime, { defaultMeridiem: 'am' });
+  const endParsed = parseTimeInput(endTime, { defaultMeridiem: 'pm' });
+  if (!startParsed || !endParsed) return new Response('Invalid time', { status: 400 });
+  if (endParsed.minutes <= startParsed.minutes) return new Response('End time must be after start time', { status: 400 });
 
-  const shiftMinutes = endMin - startMin;
+  const shiftMinutes = endParsed.minutes - startParsed.minutes;
   if (shiftMinutes > 10 * 60) return new Response('Shift exceeds 10 hours max', { status: 400 });
 
   const DB = await getDB();
@@ -38,7 +38,7 @@ export const POST: APIRoute = async ({ request }) => {
     `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(scheduleId, memberId, homeAreaKey, statusKey, startTime, endTime, shiftMinutes)
+    .bind(scheduleId, memberId, homeAreaKey, statusKey, startParsed.hhmm, endParsed.hhmm, shiftMinutes)
     .run();
 
   return new Response(null, { status: 303, headers: { Location: `/admin/schedule/${date}` } });

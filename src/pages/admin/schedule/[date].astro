@@ -134,7 +134,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
           <div class="text-sm font-medium text-slate-800">Status</div>
           <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
             {statuses.map((s) => (
-              <option value={s.key}>{s.label}</option>
+              <option value={s.key} selected={s.key === 'working'}>{s.label}</option>
             ))}
           </select>
         </label>
@@ -217,6 +217,16 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 class="text-lg font-medium">Break planning (next)</h2>
       <p class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
+    </div>
+  </div>
+</Layout>
+te p-5 shadow-sm">
+      <h2 class="text-lg font-medium">Break planning (next)</h2>
+      <p class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
+    </div>
+  </div>
+</Layout>
+class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
     </div>
   </div>
 </Layout>
