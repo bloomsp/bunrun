@@ -21,7 +21,7 @@ export function getRoleFromRequest(request: Request): AuthRole | null {
 export function requireRole(request: Request, role: AuthRole): { ok: true } | { ok: false; redirect: Response } {
   const current = getRoleFromRequest(request);
   if (!current) {
-    const to = role === 'admin' ? '/login?role=admin' : '/login?role=view';
+    const to = role === 'admin' ? '/login/admin' : '/login/view';
     const url = new URL(to, request.url);
     return { ok: false, redirect: Response.redirect(url.toString(), 302) };
   }
