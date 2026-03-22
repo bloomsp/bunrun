@@ -1,4 +1,6 @@
 ---
+export const prerender = true;
+
 import Layout from '../layouts/Layout.astro';
 
 const role = (Astro.url.searchParams.get('role') || 'view') as 'view' | 'admin';
