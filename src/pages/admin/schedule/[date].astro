@@ -423,7 +423,7 @@ function rangeFor(start: string, duration: number) {
                     <div class="text-sm font-semibold text-slate-700">{areaLabel}</div>
                   )}
                   <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div class="font-semibold">{s.name}</div>
                   <div class="text-sm text-slate-600">
@@ -431,9 +431,9 @@ function rangeFor(start: string, duration: number) {
                   </div>
                 </div>
                 <div class="text-sm text-slate-600">Area: {areas.find((a) => a.key === s.home_area_key)?.label ?? s.home_area_key}</div>
-              </div>
+                    </div>
 
-              <div class="mt-4 overflow-x-auto">
+                    <div class="mt-4 overflow-x-auto">
                 <table class="w-full min-w-[780px] border-separate border-spacing-y-2 text-sm">
                   <thead>
                     <tr class="text-left text-slate-600">
@@ -502,8 +502,8 @@ function rangeFor(start: string, duration: number) {
                       </tr>
                     ))}
 
-                    <tr class="bg-white">
-                      <td class="px-3 py-3" colspan="4">
+                      <tr class="bg-white">
+                        <td class="px-3 py-3" colspan="4">
                         <form method="post" action="/api/breaks/add" class="flex flex-wrap items-center gap-2">
                           <input type="hidden" name="date" value={date} />
                           <input type="hidden" name="shiftId" value={s.id} />
