@@ -90,6 +90,14 @@ const areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COL
 const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
   .results as Status[];
 
+const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
+const permsByMember = new Map<number, Set<string>>();
+for (const p of perms) {
+  const set = permsByMember.get(p.member_id) ?? new Set<string>();
+  set.add(p.area_key);
+  permsByMember.set(p.member_id, set);
+}
+
 const op = operatingHoursFor(date);
 const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 
@@ -110,6 +118,26 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
     }
   }
   return out;
+}
+
+function canWorkArea(memberId: number, areaKey: string) {
+  const shift = shifts.find((s) => s.member_id === memberId);
+  if (!shift) return false;
+  const m = members.find((mm) => mm.id === memberId);
+  if (!m) return false;
+  if (m.all_areas === 1) return true;
+  const set = permsByMember.get(memberId);
+  return Boolean(set?.has(areaKey));
+}
+
+function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function rangeFor(start: string, duration: number) {
+  const s = parseHHMM(start);
+  if (s == null) return null;
+  return { start: s, end: s + duration };
 }
 ---
 
@@ -401,6 +429,28 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
                               {shifts
                                 .filter((cs) => cs.member_id !== s.member_id)
                                 .filter((cs) => cs.status_key === 'working')
+                                .filter((cs) => canWorkArea(cs.member_id, s.home_area_key))
+                                .filter((cs) => {
+                                  const target = rangeFor(b.start_time, b.duration_minutes);
+                                  if (!target) return true;
+
+                                  // Not on break themselves
+                                  const own = breaksByShift.get(cs.id) ?? [];
+                                  for (const ob of own) {
+                                    const r = rangeFor(ob.start_time, ob.duration_minutes);
+                                    if (r && overlap(target.start, target.end, r.start, r.end)) return false;
+                                  }
+
+                                  // Not already covering someone else at the same time
+                                  for (const cb of breaks) {
+                                    if (cb.cover_member_id !== cs.member_id) continue;
+                                    if (cb.id === b.id) continue;
+                                    const r = rangeFor(cb.start_time, cb.duration_minutes);
+                                    if (r && overlap(target.start, target.end, r.start, r.end)) return false;
+                                  }
+
+                                  return true;
+                                })
                                 .map((cs) => (
                                   <option value={cs.member_id} selected={b.cover_member_id === cs.member_id}>
                                     {cs.name}
