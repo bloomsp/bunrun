@@ -13,7 +13,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const form = await request.formData();
   const role = (form.get('role') || 'view').toString();
-  const password = (form.get('password') || '').toString();
+  const password = (form.get('password') || '').toString().trim();
 
   // Env handling:
   // - In Astro dev: use import.meta.env (loaded from .env)
@@ -24,14 +24,14 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     const mod = await import('cloudflare:workers');
     const runtimeEnv = (mod as any).env as any;
-    viewPassword = runtimeEnv?.BUNRUN_VIEW_PASSWORD;
-    adminPassword = runtimeEnv?.BUNRUN_ADMIN_PASSWORD;
+    viewPassword = typeof runtimeEnv?.BUNRUN_VIEW_PASSWORD === 'string' ? runtimeEnv.BUNRUN_VIEW_PASSWORD.trim() : undefined;
+    adminPassword = typeof runtimeEnv?.BUNRUN_ADMIN_PASSWORD === 'string' ? runtimeEnv.BUNRUN_ADMIN_PASSWORD.trim() : undefined;
   } catch {
     // ignore
   }
 
-  viewPassword ||= import.meta.env.BUNRUN_VIEW_PASSWORD as string | undefined;
-  adminPassword ||= import.meta.env.BUNRUN_ADMIN_PASSWORD as string | undefined;
+  viewPassword ||= (import.meta.env.BUNRUN_VIEW_PASSWORD as string | undefined)?.trim();
+  adminPassword ||= (import.meta.env.BUNRUN_ADMIN_PASSWORD as string | undefined)?.trim();
 
   if (!viewPassword || !adminPassword) {
     return new Response('Server not configured (missing passwords)', { status: 500 });
