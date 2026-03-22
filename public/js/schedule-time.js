@@ -42,6 +42,17 @@ function init() {
   const addBtn = document.querySelector('[data-bunrun-add-shift]');
   const endMM = form.querySelector('input[name="endMM"]');
 
+  // Default area selection when member is chosen
+  const memberSel = form.querySelector('select[data-bunrun-member]');
+  const areaSel = form.querySelector('select[data-bunrun-area]');
+  if (memberSel && areaSel) {
+    memberSel.addEventListener('change', () => {
+      const opt = memberSel.options[memberSel.selectedIndex];
+      const defArea = opt?.getAttribute('data-default-area') || '';
+      if (defArea) areaSel.value = defArea;
+    });
+  }
+
   const updateAll = () => {
     normalizePair('start', 'am');
     normalizePair('end', 'pm');

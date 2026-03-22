@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
-import { parseHHMM } from '../../../lib/time';
+import { parseTimeInput } from '../../../lib/time';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -12,12 +12,23 @@ export const POST: APIRoute = async ({ request }) => {
   const memberId = Number(form.get('memberId'));
   const homeAreaKey = (form.get('homeAreaKey') || '').toString();
   const statusKey = (form.get('statusKey') || '').toString();
-  const startTime = (form.get('startTime') || '').toString();
-  const endTime = (form.get('endTime') || '').toString();
+  // New schedule UI submits HH/MM pairs and a hidden HH:MM field.
+  // Prefer the hidden field if present; otherwise build from HH/MM.
+  const startTimeRaw = (form.get('startTime') || '').toString();
+  const endTimeRaw = (form.get('endTime') || '').toString();
+
+  const startHH = (form.get('startHH') || '').toString();
+  const startMM = (form.get('startMM') || '').toString();
+  const endHH = (form.get('endHH') || '').toString();
+  const endMM = (form.get('endMM') || '').toString();
+
+  const startTime = startTimeRaw || `${startHH}:${startMM}`;
+  const endTime = endTimeRaw || `${endHH}:${endMM}`;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Response('Invalid date', { status: 400 });
   if (!Number.isFinite(memberId) || memberId <= 0) return new Response('Invalid member', { status: 400 });
 
+  // startTime/endTime should be normalized HH:MM by the form, but keep parsing flexible.
   const startParsed = parseTimeInput(startTime, { defaultMeridiem: 'am' });
   const endParsed = parseTimeInput(endTime, { defaultMeridiem: 'pm' });
   if (!startParsed || !endParsed) return new Response('Invalid time', { status: 400 });
