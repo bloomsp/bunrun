@@ -3,6 +3,8 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { overlap, minutesRange } from '../../../lib/breaks';
 
+type StaffRow = { area_key: string; label: string; min_staff: number; count: number };
+
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
@@ -36,6 +38,17 @@ export const POST: APIRoute = async ({ request }) => {
 
   const targetRange = minutesRange(target.start_time, target.duration_minutes);
   if (!targetRange) return new Response('Invalid break time', { status: 400 });
+
+  // Load off-person shift + member area
+  const offShift = (await DB.prepare(
+    `SELECT s.id, s.status_key, s.home_area_key
+     FROM shifts s
+     WHERE s.schedule_id=? AND s.member_id=?`
+  )
+    .bind(target.schedule_id, target.off_member_id)
+    .first()) as any;
+
+  if (!offShift) return new Response('Off member shift not found', { status: 404 });
 
   if (coverMemberId !== null) {
     // Check cover eligibility: must be on the same schedule day and not blocked.
@@ -107,6 +120,40 @@ export const POST: APIRoute = async ({ request }) => {
       if (overlap(targetRange.start, targetRange.end, r.start, r.end)) {
         return new Response('Cover member is on break during that time', { status: 409 });
       }
+    }
+
+    // Area minimum staffing check
+    const staff = (await DB.prepare(
+      `SELECT a.key AS area_key, a.label, a.min_staff,
+              COUNT(s.id) AS count
+       FROM areas a
+       LEFT JOIN shifts s
+         ON s.home_area_key = a.key
+        AND s.schedule_id = ?
+        AND s.status_key = 'working'
+       GROUP BY a.key, a.label, a.min_staff`
+    )
+      .bind(target.schedule_id)
+      .all()).results as StaffRow[];
+
+    const counts = new Map(staff.map((r) => [r.area_key, Number(r.count)]));
+
+    // Off-person leaves their area
+    counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) - 1);
+
+    // Cover person leaves their own area if different
+    if (coverShift.home_area_key !== target.home_area_key) {
+      counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
+      // Cover adds to the covered area
+      counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) + 1);
+    }
+
+    const failing = staff.filter((r) => (counts.get(r.area_key) ?? 0) < Number(r.min_staff));
+    if (failing.length) {
+      const msg = failing
+        .map((r) => `${r.label} below minimum (${counts.get(r.area_key) ?? 0}/${r.min_staff})`)
+        .join('; ');
+      return new Response(`Area staffing minimum would be violated: ${msg}`, { status: 409 });
     }
   }
 

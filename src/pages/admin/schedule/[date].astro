@@ -58,7 +58,7 @@ const shifts = (await DB.prepare(
    FROM shifts s
    JOIN members m ON m.id = s.member_id
    WHERE s.schedule_id=?
-   ORDER BY m.name COLLATE NOCASE ASC`
+   ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC`
 ).bind(scheduleId).all()).results as ShiftRow[];
 
 const breaks = (await DB.prepare(
@@ -385,16 +385,28 @@ function rangeFor(start: string, duration: number) {
       <p class="mt-2 text-sm text-slate-600">Add breaks and assign cover. (Auto-generate coming next.)</p>
 
       <div class="mt-6 space-y-6">
-        {shifts.filter((s) => s.status_key === 'working').map((s) => {
-          const endMin = minutesOrNull(s.end_time);
-          const startMin = parseHHMM(s.start_time) ?? 0;
-          const shiftMinutes = endMin != null ? endMin - startMin : s.shift_minutes;
-          const allowance = breakAllowanceMinutes(shiftMinutes);
-          const rows = breaksByShift.get(s.id) ?? [];
-          const used = rows.reduce((sum, r) => sum + r.duration_minutes, 0);
+        {(() => {
+          let lastArea: string | null = null;
+          return shifts
+            .filter((s) => s.status_key === 'working')
+            .map((s) => {
+              const endMin = minutesOrNull(s.end_time);
+              const startMin = parseHHMM(s.start_time) ?? 0;
+              const shiftMinutes = endMin != null ? endMin - startMin : s.shift_minutes;
+              const allowance = breakAllowanceMinutes(shiftMinutes);
+              const rows = breaksByShift.get(s.id) ?? [];
+              const used = rows.reduce((sum, r) => sum + r.duration_minutes, 0);
 
-          return (
-            <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              const areaLabel = areas.find((a) => a.key === s.home_area_key)?.label ?? s.home_area_key;
+              const showHeading = lastArea !== s.home_area_key;
+              lastArea = s.home_area_key;
+
+              return (
+                <div class="space-y-3">
+                  {showHeading && (
+                    <div class="text-sm font-semibold text-slate-700">{areaLabel}</div>
+                  )}
+                  <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div class="font-semibold">{s.name}</div>
@@ -508,23 +520,10 @@ function rangeFor(start: string, duration: number) {
                 </div>
               )}
             </section>
+          </div>
           );
         })}
       </div>
-    </div>
-  </div>
-</Layout>
-te p-5 shadow-sm">
-      <h2 class="text-lg font-medium">Break planning (next)</h2>
-      <p class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
-    </div>
-  </div>
-</Layout>
-class="mt-2 text-slate-700">Next step: break table + auto-generate + cover selection + validation.</p>
-    </div>
-  </div>
-</Layout>
-n.</p>
     </div>
   </div>
 </Layout>
