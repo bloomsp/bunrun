@@ -88,6 +88,7 @@ const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM stat
   .results as Status[];
 
 const op = operatingHoursFor(date);
+const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 
 function minutesOrNull(v: string | null) {
   if (!v) return null;
@@ -236,12 +237,74 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
               const startMin = parseHHMM(s.start_time) ?? 0;
               const computed = endMin != null ? endMin - startMin : s.shift_minutes;
               const warns = endMin != null ? warningsForShift(s.start_time, s.end_time!, computed) : [];
+              const statusLabel = statuses.find((st) => st.key === s.status_key)?.label ?? s.status_key;
+              const isEditing = editShiftId === s.id;
+
+              if (isEditing) {
+                return (
+                  <tr class="bg-slate-50">
+                    <td class="px-3 py-3 font-medium">{s.name}</td>
+                    <td class="px-3 py-3" colspan="7">
+                      <form class="grid gap-3 sm:grid-cols-6" method="post" action="/api/shifts/update">
+                        <input type="hidden" name="date" value={date} />
+                        <input type="hidden" name="shiftId" value={s.id} />
+
+                        <label class="block sm:col-span-2">
+                          <div class="text-xs font-medium text-slate-700">Area</div>
+                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
+                            {areas.map((a) => (
+                              <option value={a.key} selected={a.key === s.home_area_key}>{a.label}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label class="block">
+                          <div class="text-xs font-medium text-slate-700">Status</div>
+                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
+                            {statuses.map((st) => (
+                              <option value={st.key} selected={st.key === s.status_key}>{st.label}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label class="block">
+                          <div class="text-xs font-medium text-slate-700">Start</div>
+                          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value={s.start_time} required step="60" />
+                        </label>
+
+                        <label class="block">
+                          <div class="text-xs font-medium text-slate-700">End</div>
+                          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value={s.end_time ?? ''} required step="60" />
+                        </label>
+
+                        <div class="sm:col-span-1 flex items-end gap-2">
+                          <button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+                            Save
+                          </button>
+                          <a class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${date}`}>
+                            Cancel
+                          </a>
+                        </div>
+                      </form>
+                      <div class="mt-2 text-xs text-slate-600">
+                        Note: setting status to <b>Sick</b> removes their breaks and clears any cover assignments where they were covering others.
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
 
               return (
                 <tr class="bg-slate-50">
                   <td class="px-3 py-3 font-medium">{s.name}</td>
                   <td class="px-3 py-3">{areas.find((a) => a.key === s.home_area_key)?.label ?? s.home_area_key}</td>
-                  <td class="px-3 py-3">{statuses.find((st) => st.key === s.status_key)?.label ?? s.status_key}</td>
+                  <td class="px-3 py-3">
+                    {s.status_key === 'sick' ? (
+                      <span class="rounded bg-rose-100 px-2 py-1 font-medium text-rose-900">Sick</span>
+                    ) : (
+                      statusLabel
+                    )}
+                  </td>
                   <td class="px-3 py-3">{s.start_time}</td>
                   <td class="px-3 py-3">{s.end_time ?? '—'}</td>
                   <td class="px-3 py-3">{formatDurationMinutes(computed)}</td>
@@ -253,13 +316,18 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
                     )}
                   </td>
                   <td class="px-3 py-3">
-                    <form method="post" action="/api/shifts/delete" onsubmit="return confirm('Delete this shift?')">
-                      <input type="hidden" name="shiftId" value={s.id} />
-                      <input type="hidden" name="date" value={date} />
-                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" type="submit">
-                        Delete
-                      </button>
-                    </form>
+                    <div class="flex items-center gap-2">
+                      <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" href={`/admin/schedule/${date}?editShift=${s.id}`}>
+                        Edit
+                      </a>
+                      <form method="post" action="/api/shifts/delete" onsubmit="return confirm('Delete this shift?')">
+                        <input type="hidden" name="shiftId" value={s.id} />
+                        <input type="hidden" name="date" value={date} />
+                        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" type="submit">
+                          Delete
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               );
@@ -276,7 +344,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
       <p class="mt-2 text-sm text-slate-600">Add breaks and assign cover. (Auto-generate coming next.)</p>
 
       <div class="mt-6 space-y-6">
-        {shifts.map((s) => {
+        {shifts.filter((s) => s.status_key === 'working').map((s) => {
           const endMin = minutesOrNull(s.end_time);
           const startMin = parseHHMM(s.start_time) ?? 0;
           const shiftMinutes = endMin != null ? endMin - startMin : s.shift_minutes;
@@ -319,6 +387,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
                               <option value="" selected={b.cover_member_id == null}>—</option>
                               {shifts
                                 .filter((cs) => cs.member_id !== s.member_id)
+                                .filter((cs) => cs.status_key === 'working')
                                 .map((cs) => (
                                   <option value={cs.member_id} selected={b.cover_member_id === cs.member_id}>
                                     {cs.name}
