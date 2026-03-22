@@ -84,7 +84,7 @@ function allowedAreasFor(memberId: number) {
                   </div>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <form method="post" action="/api/members/toggle-active">
                     <input type="hidden" name="memberId" value={m.id} />
                     <input type="hidden" name="active" value={m.active ? '0' : '1'} />
@@ -93,56 +93,64 @@ function allowedAreasFor(memberId: number) {
                     </button>
                   </form>
 
-                  {m.all_areas ? (
-                    <a
-                      class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-                      href={`/admin/members?edit=${m.id}`}
+                  <form method="post" action="/api/members/set-all-areas">
+                    <input type="hidden" name="memberId" value={m.id} />
+                    <input type="hidden" name="allAreas" value="1" />
+                    <button
+                      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+                      type="submit"
+                      disabled={!m.active}
                     >
-                      Restrict areas…
-                    </a>
-                  ) : (
-                    <form method="post" action="/api/members/set-all-areas">
-                      <input type="hidden" name="memberId" value={m.id} />
-                      <input type="hidden" name="allAreas" value="1" />
-                      <button
-                        class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-                        type="submit"
-                        disabled={!m.active}
-                      >
-                        Allow all areas
-                      </button>
-                    </form>
-                  )}
+                      Allow all areas
+                    </button>
+                  </form>
+
+                  <a
+                    class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+                    href={`/admin/members?edit=${m.id}`}
+                  >
+                    Restrict areas
+                  </a>
                 </div>
               </div>
 
-              {(isEditing || !m.all_areas) && (
+              {isEditing && (
                 <form class="mt-4" method="post" action="/api/members/set-areas">
                   <input type="hidden" name="memberId" value={m.id} />
-                  <input type="hidden" name="returnTo" value={`/admin/members?edit=${m.id}`} />
+                  <input type="hidden" name="returnTo" value="/admin/members" />
 
                   <div class="flex items-center justify-between gap-3">
                     <div class="text-sm font-medium text-slate-800">Allowed areas</div>
-                    <a class="text-sm underline" href="/admin/members">Done</a>
                   </div>
 
                   <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     {areas.map((a) => (
                       <label class="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                        <input type="checkbox" name="areas" value={a.key} checked={allowed.has(a.key)} />
+                        <input
+                          type="checkbox"
+                          name="areas"
+                          value={a.key}
+                          checked={m.all_areas ? true : allowed.has(a.key)}
+                        />
                         <span>{a.label}</span>
                       </label>
                     ))}
                   </div>
 
-                  <div class="mt-3 flex items-center gap-2">
+                  <div class="mt-3 flex flex-wrap items-center gap-2">
                     <button
                       class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       type="submit"
                       disabled={!m.active}
                     >
-                      Save areas
+                      Save
                     </button>
+                    <a
+                      class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+                      href="/admin/members"
+                    >
+                      Cancel
+                    </a>
                     <div class="text-sm text-slate-600">(Applies to home area and break coverage.)</div>
                   </div>
                 </form>
