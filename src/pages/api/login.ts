@@ -15,10 +15,23 @@ export const POST: APIRoute = async ({ request }) => {
   const role = (form.get('role') || 'view').toString();
   const password = (form.get('password') || '').toString();
 
-  // In Astro dev, server-side env should be read via import.meta.env (loaded from .env).
-  // In Cloudflare, these are provided as runtime env vars.
-  const viewPassword = import.meta.env.BUNRUN_VIEW_PASSWORD as string | undefined;
-  const adminPassword = import.meta.env.BUNRUN_ADMIN_PASSWORD as string | undefined;
+  // Env handling:
+  // - In Astro dev: use import.meta.env (loaded from .env)
+  // - In Cloudflare Pages/Workers: use runtime env from `cloudflare:workers`
+  let viewPassword: string | undefined;
+  let adminPassword: string | undefined;
+
+  try {
+    const mod = await import('cloudflare:workers');
+    const runtimeEnv = (mod as any).env as any;
+    viewPassword = runtimeEnv?.BUNRUN_VIEW_PASSWORD;
+    adminPassword = runtimeEnv?.BUNRUN_ADMIN_PASSWORD;
+  } catch {
+    // ignore
+  }
+
+  viewPassword ||= import.meta.env.BUNRUN_VIEW_PASSWORD as string | undefined;
+  adminPassword ||= import.meta.env.BUNRUN_ADMIN_PASSWORD as string | undefined;
 
   if (!viewPassword || !adminPassword) {
     return new Response('Server not configured (missing passwords)', { status: 500 });
