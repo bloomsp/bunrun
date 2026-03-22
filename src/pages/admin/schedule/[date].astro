@@ -19,6 +19,7 @@ type Member = {
   name: string;
   active: number;
   all_areas: number;
+  default_area_key: string | null;
 };
 
 type Area = { key: string; label: string };
@@ -54,7 +55,7 @@ const shifts = (await DB.prepare(
 const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
 
 const members = (await DB.prepare(
-  'SELECT id, name, active, all_areas FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
+  'SELECT id, name, active, all_areas, default_area_key FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
 ).all()).results as Member[];
 
 const areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
@@ -85,6 +86,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 ---
 
 <Layout title={`Schedule ${date} | Bunrun`}>
+  <script src="/js/time-input.js?v=3" defer></script>
   <div class="mx-auto max-w-5xl px-4 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -111,19 +113,31 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 
         <label class="block sm:col-span-2">
           <div class="text-sm font-medium text-slate-800">Member</div>
-          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="memberId" required>
+          <select
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            name="memberId"
+            required
+            data-bunrun-member
+          >
             <option value="" selected>Select…</option>
             {members
               .filter((m) => !assignedMemberIds.has(m.id))
               .map((m) => (
-                <option value={m.id}>{m.name}</option>
+                <option value={m.id} data-default-area={m.default_area_key ?? ''}>
+                  {m.name}
+                </option>
               ))}
           </select>
         </label>
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">Area</div>
-          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
+          <select
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            name="homeAreaKey"
+            required
+            data-bunrun-area
+          >
             {areas.map((a) => (
               <option value={a.key}>{a.label}</option>
             ))}
@@ -150,7 +164,11 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
         </label>
 
         <div class="sm:col-span-6">
-          <button class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800" type="submit">
+          <button
+            class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800"
+            type="submit"
+            data-bunrun-add-shift
+          >
             Add shift
           </button>
         </div>

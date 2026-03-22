@@ -10,6 +10,8 @@ export const POST: APIRoute = async ({ request }) => {
   const memberId = Number(form.get('memberId'));
   const name = (form.get('name') || '').toString().trim();
   const selectedAreas = form.getAll('areas').map((v) => v.toString());
+  const defaultAreaKeyRaw = (form.get('defaultAreaKey') || '').toString().trim();
+  const defaultAreaKey = defaultAreaKeyRaw === '' ? null : defaultAreaKeyRaw;
   const returnTo = (form.get('returnTo') || '/admin/members').toString();
 
   if (!Number.isFinite(memberId) || memberId <= 0) {
@@ -28,13 +30,16 @@ export const POST: APIRoute = async ({ request }) => {
   for (const k of selectedAreas) {
     if (!known.has(k)) return new Response(`Unknown area: ${k}`, { status: 400 });
   }
+  if (defaultAreaKey && !known.has(defaultAreaKey)) {
+    return new Response(`Unknown default area: ${defaultAreaKey}`, { status: 400 });
+  }
 
   // If all areas selected, treat as "allow all".
   const allSelected = selectedAreas.length > 0 && selectedAreas.length === known.size;
 
   try {
-    await DB.prepare('UPDATE members SET name=?, all_areas=? WHERE id=?')
-      .bind(name, allSelected ? 1 : 0, memberId)
+    await DB.prepare('UPDATE members SET name=?, all_areas=?, default_area_key=? WHERE id=?')
+      .bind(name, allSelected ? 1 : 0, defaultAreaKey, memberId)
       .run();
   } catch (e: any) {
     // Name is UNIQUE; surface conflict nicely.

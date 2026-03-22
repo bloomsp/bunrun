@@ -63,11 +63,39 @@ function parse(input, defaultMeridiem) {
 
 function init() {
   const inputs = document.querySelectorAll('input[data-bunrun-time]');
+
   for (const input of inputs) {
-    input.addEventListener('blur', () => {
+    const normalize = () => {
       const def = input.getAttribute('data-default-meridiem') || 'am';
       const normalized = parse(input.value, def);
       if (normalized) input.value = normalized;
+    };
+
+    input.addEventListener('blur', () => {
+      normalize();
+
+      // If this is the End time field, move focus to the Add Shift button for quick Enter.
+      if (input.name === 'endTime') {
+        const btn = document.querySelector('[data-bunrun-add-shift]');
+        if (btn && typeof btn.focus === 'function') btn.focus();
+      }
+    });
+
+    // Normalize as soon as user tabs out (keydown Tab), not just blur.
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      normalize();
+    });
+  }
+
+  // Default area selection when member is chosen
+  const memberSel = document.querySelector('select[data-bunrun-member]');
+  const areaSel = document.querySelector('select[data-bunrun-area]');
+  if (memberSel && areaSel) {
+    memberSel.addEventListener('change', () => {
+      const opt = memberSel.options[memberSel.selectedIndex];
+      const defArea = opt?.getAttribute('data-default-area') || '';
+      if (defArea) areaSel.value = defArea;
     });
   }
 }

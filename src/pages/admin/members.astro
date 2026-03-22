@@ -8,7 +8,7 @@ import { getDB } from '../../lib/db';
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
 
-type Member = { id: number; name: string; active: number; all_areas: number };
+type Member = { id: number; name: string; active: number; all_areas: number; default_area_key: string | null };
 
 type Area = { key: string; label: string };
 
@@ -23,7 +23,7 @@ let dbError: string | null = null;
 
 try {
   const DB = await getDB();
-  members = (await DB.prepare('SELECT id, name, active, all_areas FROM members ORDER BY name COLLATE NOCASE ASC').all())
+  members = (await DB.prepare('SELECT id, name, active, all_areas, default_area_key FROM members ORDER BY name COLLATE NOCASE ASC').all())
     .results as Member[];
   areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
   perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as Permission[];
@@ -128,8 +128,8 @@ function allowedAreasFor(memberId: number) {
                   <input type="hidden" name="memberId" value={m.id} />
                   <input type="hidden" name="returnTo" value="/admin/members" />
 
-                  <div class="grid gap-4 sm:grid-cols-2">
-                    <label class="block">
+                  <div class="grid gap-4 sm:grid-cols-3">
+                    <label class="block sm:col-span-1">
                       <div class="text-sm font-medium text-slate-800">Name</div>
                       <input
                         class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
@@ -139,7 +139,20 @@ function allowedAreasFor(memberId: number) {
                       />
                     </label>
 
-                    <div>
+                    <label class="block sm:col-span-1">
+                      <div class="text-sm font-medium text-slate-800">Default area</div>
+                      <select
+                        class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                        name="defaultAreaKey"
+                      >
+                        <option value="" selected={!m.default_area_key}>—</option>
+                        {areas.map((a) => (
+                          <option value={a.key} selected={m.default_area_key === a.key}>{a.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div class="sm:col-span-1">
                       <div class="text-sm font-medium text-slate-800">Allowed areas</div>
                       <div class="mt-1 text-sm text-slate-600">Applies to home area and break coverage.</div>
                     </div>
