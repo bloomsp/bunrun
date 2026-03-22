@@ -82,6 +82,15 @@ function allowedAreasFor(memberId: number) {
                     {' · '}
                     Areas: {m.all_areas ? 'All areas' : 'Restricted'}
                   </div>
+
+                  {!m.all_areas && (
+                    <div class="mt-1 text-sm text-slate-600">
+                      Allowed: {Array.from(allowed)
+                        .map((k) => areas.find((a) => a.key === k)?.label ?? k)
+                        .sort((a, b) => a.localeCompare(b))
+                        .join(', ') || '—'}
+                    </div>
+                  )}
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
