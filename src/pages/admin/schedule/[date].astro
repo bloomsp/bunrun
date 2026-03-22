@@ -110,7 +110,7 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 ---
 
 <Layout title={`Schedule ${date} | Bunrun`}>
-  <script src="/js/schedule-time.js?v=2" defer></script>
+  <script src="/js/schedule-time.js?v=4" defer></script>
   <div class="mx-auto max-w-5xl px-4 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -179,70 +179,27 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">Start</div>
-          <div class="mt-1 flex flex-nowrap items-center gap-2">
-            <input
-              class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2"
-              type="number"
-              name="startHH"
-              inputmode="numeric"
-              min="0"
-              max="23"
-              step="1"
-              placeholder="6"
-              required
-              data-time-hh
-              data-default-meridiem="am"
-            />
-            <span class="text-sm text-slate-600">:</span>
-            <input
-              class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2"
-              type="number"
-              name="startMM"
-              min="0"
-              max="59"
-              step="1"
-              value="00"
-              required
-              data-time-mm
-              data-pair="start"
-            />
-            <span id="startMer" class="shrink-0 whitespace-nowrap rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-200">AM</span>
-          </div>
-          <input type="hidden" name="startTime" value="" data-time-out="start" />
+          <input
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            type="time"
+            name="startTime"
+            value="06:00"
+            required
+            step="60"
+          />
         </label>
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">End</div>
-          <div class="mt-1 flex flex-nowrap items-center gap-2">
-            <input
-              class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2"
-              type="number"
-              name="endHH"
-              inputmode="numeric"
-              min="0"
-              max="23"
-              step="1"
-              placeholder="3"
-              required
-              data-time-hh
-              data-default-meridiem="pm"
-            />
-            <span class="text-sm text-slate-600">:</span>
-            <input
-              class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2"
-              type="number"
-              name="endMM"
-              min="0"
-              max="59"
-              step="1"
-              value="00"
-              required
-              data-time-mm
-              data-pair="end"
-            />
-            <span id="endMer" class="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">PM</span>
-          </div>
-          <input type="hidden" name="endTime" value="" data-time-out="end" />
+          <input
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+            type="time"
+            name="endTime"
+            value="15:00"
+            required
+            step="60"
+            data-bunrun-endtime
+          />
         </label>
 
         <div class="sm:col-span-6">
