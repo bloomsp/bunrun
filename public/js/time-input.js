@@ -64,15 +64,17 @@ function parse(input, defaultMeridiem) {
 function init() {
   const inputs = document.querySelectorAll('input[data-bunrun-time]');
 
-  for (const input of inputs) {
-    const normalize = () => {
-      const def = input.getAttribute('data-default-meridiem') || 'am';
-      const normalized = parse(input.value, def);
-      if (normalized) input.value = normalized;
-    };
+  const normalizeInput = (input) => {
+    const def = input.getAttribute('data-default-meridiem') || 'am';
+    const normalized = parse(input.value, def);
+    if (normalized) input.value = normalized;
+    return normalized;
+  };
 
-    input.addEventListener('blur', () => {
-      normalize();
+  for (const input of inputs) {
+    // Normalize when leaving the field (Safari is more reliable with focusout/change than keydown Tab).
+    input.addEventListener('focusout', () => {
+      normalizeInput(input);
 
       // If this is the End time field, move focus to the Add Shift button for quick Enter.
       if (input.name === 'endTime') {
@@ -81,10 +83,50 @@ function init() {
       }
     });
 
-    // Normalize as soon as user tabs out (keydown Tab), not just blur.
+    input.addEventListener('change', () => {
+      normalizeInput(input);
+    });
+
+    // Best-effort: normalize on Tab keydown (works in most Chromium cases)
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Tab') return;
-      normalize();
+      normalizeInput(input);
+    });
+  }
+
+  // Normalize before submitting the Add Shift form (most reliable across browsers)
+  const addShiftForm = document.querySelector('form[action="/api/shifts/upsert"]');
+  if (addShiftForm) {
+    addShiftForm.addEventListener('submit', (e) => {
+      const start = addShiftForm.querySelector('input[name="startTime"]');
+      const end = addShiftForm.querySelector('input[name="endTime"]');
+      if (start) normalizeInput(start);
+      if (end) normalizeInput(end);
+
+      // Provide nicer client-side feedback if parsing fails.
+      if (start && !parse(start.value, start.getAttribute('data-default-meridiem') || 'am')) {
+        start.setCustomValidity('Please enter a valid time (e.g. 6, 6:00, 18:30).');
+      } else if (start) {
+        start.setCustomValidity('');
+      }
+
+      if (end && !parse(end.value, end.getAttribute('data-default-meridiem') || 'pm')) {
+        end.setCustomValidity('Please enter a valid time (e.g. 3, 3:00, 15:30).');
+      } else if (end) {
+        end.setCustomValidity('');
+      }
+
+      // Let the browser show validity UI if needed.
+      if (start && !start.checkValidity()) {
+        e.preventDefault();
+        start.reportValidity();
+        return;
+      }
+      if (end && !end.checkValidity()) {
+        e.preventDefault();
+        end.reportValidity();
+        return;
+      }
     });
   }
 
