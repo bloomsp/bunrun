@@ -1,0 +1,52 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import Runsheet from '../../components/Runsheet.astro';
+import { requireRole } from '../../lib/auth';
+import { getDB } from '../../lib/db';
+
+const guard = requireRole(Astro.request, 'view');
+if (!guard.ok) return guard.redirect;
+
+const date = Astro.params.date ?? '';
+if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  return new Response('Invalid date', { status: 400 });
+}
+
+const DB = await getDB();
+
+await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
+const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
+const scheduleId = sched.id as number;
+
+const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as any[];
+
+const shifts = (await DB.prepare(
+  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.start_time, s.end_time
+   FROM shifts s
+   JOIN members m ON m.id=s.member_id
+   WHERE s.schedule_id=?
+   ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC`
+).bind(scheduleId).all()).results as any[];
+
+const breaks = (await DB.prepare(
+  `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes
+   FROM breaks b
+   JOIN shifts s ON s.id=b.shift_id
+   WHERE s.schedule_id=?`
+).bind(scheduleId).all()).results as any[];
+---
+
+<Layout title={`Runsheet ${date} | Bunrun`}>
+  <div class="mx-auto max-w-6xl px-4 py-10">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold tracking-tight">Read-only runsheet</h1>
+      <form method="post" action="/api/logout">
+        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">Log out</button>
+      </form>
+    </div>
+
+    <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
+  </div>
+</Layout>

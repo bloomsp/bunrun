@@ -6,6 +6,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { breakAllowanceMinutes } from '../../../lib/breaks';
+import Runsheet from '../../../components/Runsheet.astro';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
@@ -493,6 +494,10 @@ function rangeFor(start: string, duration: number) {
       </div>
 
       {shifts.length === 0 && <div class="mt-4 text-sm text-slate-600">No shifts yet.</div>}
+    </div>
+
+    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
     </div>
 
     <div id="breaks" class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

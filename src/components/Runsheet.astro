@@ -1,0 +1,174 @@
+---
+import { buildTimeSlots, RUNSHEET_END, RUNSHEET_START, RUNSHEET_STEP_MIN } from '../lib/runsheet';
+import { parseHHMM } from '../lib/time';
+
+export type Area = { key: string; label: string; min_staff?: number };
+export type Shift = {
+  id: number;
+  member_id: number;
+  name: string;
+  home_area_key: string;
+  status_key: string;
+  start_time: string;
+  end_time: string | null;
+};
+export type Break = {
+  id: number;
+  shift_id: number;
+  start_time: string;
+  duration_minutes: number;
+};
+
+export interface Props {
+  date: string;
+  areas: Area[];
+  shifts: Shift[];
+  breaks: Break[];
+}
+
+const { date, areas, shifts, breaks } = Astro.props;
+
+const slots = buildTimeSlots();
+const startM = parseHHMM(RUNSHEET_START) ?? 360;
+const endM = parseHHMM(RUNSHEET_END) ?? 1275;
+
+const pxPerSlot = 44; // width per 30-min slot
+
+const breaksByShift = new Map<number, Break[]>();
+for (const b of breaks) {
+  const arr = breaksByShift.get(b.shift_id) ?? [];
+  arr.push(b);
+  breaksByShift.set(b.shift_id, arr);
+}
+
+const areaPalette: Record<string, string> = {
+  'service-desk': 'bg-emerald-100 border-emerald-300',
+  'registers': 'bg-amber-100 border-amber-300',
+  'tool-shop': 'bg-sky-100 border-sky-300',
+  'nursery': 'bg-lime-100 border-lime-300',
+  'cafe': 'bg-fuchsia-100 border-fuchsia-300',
+  'car-park': 'bg-orange-100 border-orange-300',
+  'front-door': 'bg-teal-100 border-teal-300',
+  'greeters': 'bg-rose-100 border-rose-300'
+};
+
+function leftPct(mins: number) {
+  return ((mins - startM) / (endM - startM)) * 100;
+}
+
+function widthPct(start: number, end: number) {
+  return ((end - start) / (endM - startM)) * 100;
+}
+
+function breakMarker(duration: number) {
+  if (duration <= 15) return 'X';
+  if (duration <= 30) return 'X\nX';
+  if (duration <= 45) return 'X\nX\nX';
+  return 'X\nX\nX\nX';
+}
+---
+
+<section class="mt-6">
+  <div class="flex items-baseline justify-between gap-3">
+    <h2 class="text-lg font-semibold">Runsheet</h2>
+    <div class="text-sm text-slate-600">Date: {date} · {RUNSHEET_START}–{RUNSHEET_END} · {RUNSHEET_STEP_MIN} min blocks</div>
+  </div>
+
+  <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <div class="min-w-[1100px]">
+      <div class="grid" style={`grid-template-columns: 220px 1fr;`}>
+        <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
+        <div class="border-b border-slate-200 bg-white">
+          <div class="relative" style={`height: 40px;`}>
+            {slots.map((s, i) => (
+              <div
+                class="absolute top-0 h-full border-l border-slate-200 text-[11px] text-slate-600"
+                style={`left:${(i / (slots.length - 1)) * 100}%; width:${100 / (slots.length - 1)}%; padding-left:6px; padding-top:10px;`}
+              >
+                {s.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {areas.map((a) => {
+        const areaShifts = shifts
+          .filter((s) => s.home_area_key === a.key)
+          .sort((x, y) => x.name.localeCompare(y.name));
+        if (areaShifts.length === 0) return null;
+
+        return (
+          <div class="border-t border-slate-200">
+            <div class="grid" style="grid-template-columns: 220px 1fr;">
+              <div class="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+                {a.label}
+              </div>
+              <div class="bg-slate-50"></div>
+            </div>
+
+            {areaShifts.map((s) => {
+              const start = parseHHMM(s.start_time) ?? startM;
+              const end = s.end_time ? parseHHMM(s.end_time) ?? start : start;
+              const bks = breaksByShift.get(s.id) ?? [];
+              const palette = areaPalette[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
+
+              return (
+                <div class="grid" style="grid-template-columns: 220px 1fr;">
+                  <div class="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-sm">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class={s.status_key === 'sick' ? 'font-semibold text-rose-700' : 'font-medium text-slate-900'}>
+                        {s.name}
+                      </span>
+                      {s.status_key === 'sick' && <span class="rounded bg-rose-100 px-2 py-0.5 text-xs text-rose-900">Sick</span>}
+                    </div>
+                    <div class="mt-0.5 text-xs text-slate-600">{s.start_time}–{s.end_time ?? '—'}</div>
+                  </div>
+
+                  <div class="relative border-t border-slate-100" style="height: 42px;">
+                    {/* grid lines */}
+                    {slots.map((sl, i) => (
+                      <div
+                        class="absolute top-0 h-full border-l border-slate-100"
+                        style={`left:${(i / (slots.length - 1)) * 100}%;`}
+                      ></div>
+                    ))}
+
+                    {/* shift block */}
+                    {s.status_key !== 'sick' && (
+                      <div
+                        class={`absolute top-[6px] h-[30px] rounded-md border ${palette}`}
+                        style={`left:${leftPct(start)}%; width:${widthPct(start, end)}%;`}
+                        title={`${s.start_time}–${s.end_time}`}
+                      ></div>
+                    )}
+
+                    {/* break markers */}
+                    {s.status_key !== 'sick' &&
+                      bks.map((b) => {
+                        const bm = parseHHMM(b.start_time);
+                        if (bm == null) return null;
+                        return (
+                          <div
+                            class="absolute top-[7px] grid place-items-center text-[10px] font-black leading-[10px] text-slate-900"
+                            style={`left: calc(${leftPct(bm)}% - 6px); width:12px; height:28px;`}
+                            title={`Break ${b.start_time} (${b.duration_minutes}m)`}
+                          >
+                            {breakMarker(b.duration_minutes)}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+
+  <div class="mt-2 text-xs text-slate-600">
+    Break marker legend: 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
+  </div>
+</section>
