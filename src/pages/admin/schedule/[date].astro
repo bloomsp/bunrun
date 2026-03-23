@@ -79,6 +79,97 @@ for (const b of breaks) {
 const workingShiftIds = new Set(shifts.filter((s) => s.status_key === 'working').map((s) => s.id));
 const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
 
+// Identify breaks with invalid cover assignments (overlap/area perms/status/min staff)
+const memberById = new Map(members.map((m) => [m.id, m]));
+const shiftByMember = new Map(shifts.map((s) => [s.member_id, s]));
+
+const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
+
+// base working counts per area
+const baseCounts = new Map<string, number>();
+for (const a of areas) baseCounts.set(a.key, 0);
+for (const s of shifts) {
+  if (s.status_key === 'working') {
+    baseCounts.set(s.home_area_key, (baseCounts.get(s.home_area_key) ?? 0) + 1);
+  }
+}
+
+function canCoverArea(memberId: number, areaKey: string) {
+  const m = memberById.get(memberId);
+  if (!m) return false;
+  // @ts-expect-error optional from DB
+  if (m.all_areas === 1) return true;
+  const set = permsByMember.get(memberId);
+  return Boolean(set?.has(areaKey));
+}
+
+function coverOverlaps(memberId: number, target: { start: number; end: number }, breakId: number) {
+  for (const b of breaks) {
+    if (b.id === breakId) continue;
+    const r = rangeFor(b.start_time, b.duration_minutes);
+    if (!r) continue;
+    if (b.cover_member_id === memberId && overlap(target.start, target.end, r.start, r.end)) return true;
+    const offShift = shifts.find((s) => s.id === b.shift_id);
+    if (offShift?.member_id === memberId && overlap(target.start, target.end, r.start, r.end)) return true;
+  }
+  return false;
+}
+
+function violatesMins(offAreaKey: string, coverMemberId: number) {
+  const coverShift = shiftByMember.get(coverMemberId);
+  if (!coverShift) return true;
+  const counts = new Map(baseCounts);
+  counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) - 1);
+  if (coverShift.home_area_key !== offAreaKey) {
+    counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
+    counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) + 1);
+  }
+  for (const [k, min] of areaMinByKey.entries()) {
+    if ((counts.get(k) ?? 0) < min) return true;
+  }
+  return false;
+}
+
+const invalidCoverBreaks: { id: number; reason: string }[] = [];
+for (const b of breaks) {
+  if (!workingShiftIds.has(b.shift_id)) continue;
+  if (b.cover_member_id == null) continue;
+
+  const coverId = b.cover_member_id;
+  const coverShift = shiftByMember.get(coverId);
+  if (!coverShift) {
+    invalidCoverBreaks.push({ id: b.id, reason: 'Cover not on roster' });
+    continue;
+  }
+  if (coverShift.status_key !== 'working') {
+    invalidCoverBreaks.push({ id: b.id, reason: 'Cover not available (status)' });
+    continue;
+  }
+
+  // off area
+  const offShift = shifts.find((s) => s.id === b.shift_id);
+  const offAreaKey = offShift?.home_area_key;
+  if (!offAreaKey) continue;
+
+  if (!canCoverArea(coverId, offAreaKey)) {
+    invalidCoverBreaks.push({ id: b.id, reason: 'Cover not permitted for area' });
+    continue;
+  }
+
+  const target = rangeFor(b.start_time, b.duration_minutes);
+  if (target && coverOverlaps(coverId, target, b.id)) {
+    invalidCoverBreaks.push({ id: b.id, reason: 'Cover conflict (overlap)' });
+    continue;
+  }
+
+  if (violatesMins(offAreaKey, coverId)) {
+    invalidCoverBreaks.push({ id: b.id, reason: 'Area minimum violated' });
+    continue;
+  }
+}
+
+const invalidReasonByBreakId = new Map(invalidCoverBreaks.map((x) => [x.id, x.reason]));
+
 const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
 
 const members = (await DB.prepare(
@@ -178,11 +269,20 @@ function rangeFor(start: string, duration: number) {
       </div>
     )}
 
-    {uncoveredBreaks.length > 0 && (
+    {(uncoveredBreaks.length > 0 || invalidCoverBreaks.length > 0) && (
       <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
         <div class="font-semibold">Schedule needs attention</div>
         <div class="mt-1 text-sm">
-          {uncoveredBreaks.length} break{uncoveredBreaks.length === 1 ? '' : 's'} {uncoveredBreaks.length === 1 ? 'is' : 'are'} missing cover.
+          {uncoveredBreaks.length > 0 && (
+            <span>
+              {uncoveredBreaks.length} break{uncoveredBreaks.length === 1 ? '' : 's'} {uncoveredBreaks.length === 1 ? 'is' : 'are'} missing cover.
+            </span>
+          )}
+          {invalidCoverBreaks.length > 0 && (
+            <span class="ml-2">
+              {invalidCoverBreaks.length} break{invalidCoverBreaks.length === 1 ? '' : 's'} {invalidCoverBreaks.length === 1 ? 'has' : 'have'} invalid cover.
+            </span>
+          )}
           <a class="ml-2 underline" href="#breaks">Review break planning</a>
         </div>
       </div>
@@ -415,6 +515,20 @@ function rangeFor(start: string, duration: number) {
             Auto-generate missing only
           </button>
         </form>
+
+        <form method="post" action="/api/breaks/revalidate">
+          <input type="hidden" name="date" value={date} />
+          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" type="submit">
+            Revalidate
+          </button>
+        </form>
+
+        <form method="post" action="/api/breaks/autofix">
+          <input type="hidden" name="date" value={date} />
+          <button class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800" type="submit">
+            Auto-fix covers
+          </button>
+        </form>
       </div>
       <p class="mt-2 text-sm text-slate-600">Add breaks and assign cover.</p>
 
@@ -468,8 +582,21 @@ function rangeFor(start: string, duration: number) {
                         </thead>
                         <tbody>
                           {rows.map((b) => (
-                            <tr class={b.cover_member_id == null ? 'bg-rose-50' : 'bg-white'}>
-                              <td class="px-3 py-3">{b.start_time}</td>
+                            <tr
+                              class={
+                                b.cover_member_id == null
+                                  ? 'bg-rose-50'
+                                  : invalidReasonByBreakId.has(b.id)
+                                    ? 'bg-amber-50'
+                                    : 'bg-white'
+                              }
+                            >
+                              <td class="px-3 py-3">
+                                {b.start_time}
+                                {invalidReasonByBreakId.has(b.id) && (
+                                  <div class="mt-1 text-xs text-amber-900">{invalidReasonByBreakId.get(b.id)}</div>
+                                )}
+                              </td>
                               <td class="px-3 py-3">{b.duration_minutes}m</td>
                               <td class="px-3 py-3">
                                 <form method="post" action="/api/breaks/assign-cover" class="flex items-center gap-2">
