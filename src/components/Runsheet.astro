@@ -30,9 +30,7 @@ const { date, areas, shifts, breaks } = Astro.props;
 
 const slots = buildTimeSlots();
 const startM = parseHHMM(RUNSHEET_START) ?? 360;
-const endM = parseHHMM(RUNSHEET_END) ?? 1275;
-
-const pxPerSlot = 42; // width per 30-min slot (wider so labels don't overlap)
+const timelineColumns = `repeat(${slots.length}, var(--runsheet-slot-width))`;
 
 const breaksByShift = new Map<number, Break[]>();
 for (const b of breaks) {
@@ -52,12 +50,12 @@ const areaPalette: Record<string, string> = {
   'greeters': 'bg-rose-100 border-rose-300'
 };
 
-function leftPx(mins: number) {
-  return ((mins - startM) / RUNSHEET_STEP_MIN) * pxPerSlot;
+function leftSlots(mins: number) {
+  return (mins - startM) / RUNSHEET_STEP_MIN;
 }
 
-function widthPx(start: number, end: number) {
-  return ((end - start) / RUNSHEET_STEP_MIN) * pxPerSlot;
+function widthSlots(start: number, end: number) {
+  return (end - start) / RUNSHEET_STEP_MIN;
 }
 
 function breakMarker(duration: number) {
@@ -68,20 +66,88 @@ function breakMarker(duration: number) {
 }
 ---
 
-<section class="mt-6">
+<section class="runsheet mt-6" style={`--runsheet-slot-count:${slots.length};`}>
+  <style>
+    .runsheet {
+      --runsheet-name-col: 220px;
+      --runsheet-slot-width: 42px;
+      --runsheet-row-height: 42px;
+      --runsheet-grid-width: calc(var(--runsheet-slot-count) * var(--runsheet-slot-width));
+    }
+
+    .runsheet-area {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+
+    @media print {
+      .runsheet {
+        --runsheet-name-col: 136px;
+        --runsheet-slot-width: 24px;
+        --runsheet-row-height: 34px;
+      }
+
+      .runsheet-shell {
+        overflow: visible !important;
+        border-radius: 0.5rem;
+      }
+
+      .runsheet-summary {
+        font-size: 10px;
+      }
+
+      .runsheet-time-label {
+        padding-left: 0.2rem;
+        padding-right: 0.2rem;
+        padding-top: 0.35rem;
+        font-size: 9px;
+      }
+
+      .runsheet-person-cell {
+        padding: 0.35rem 0.5rem;
+      }
+
+      .runsheet-area-label {
+        padding: 0.35rem 0.5rem;
+        font-size: 11px;
+      }
+
+      .runsheet-shift-block {
+        top: 4px;
+        height: 24px;
+      }
+
+      .runsheet-break-marker {
+        top: 3px;
+        height: 24px;
+        font-size: 9px;
+        line-height: 9px;
+      }
+
+      .runsheet-legend {
+        font-size: 9px;
+      }
+    }
+  </style>
+
   <div class="flex items-baseline justify-between gap-3">
     <h2 class="text-lg font-semibold">Runsheet</h2>
-    <div class="text-sm text-slate-600">Date: {date} · {RUNSHEET_START}–{RUNSHEET_END} · {RUNSHEET_STEP_MIN} min blocks</div>
+    <div class="runsheet-summary text-sm text-slate-600">Date: {date} · {RUNSHEET_START}–{RUNSHEET_END} · {RUNSHEET_STEP_MIN} min blocks</div>
   </div>
 
-  <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-    <div class="min-w-[1100px]">
-      <div class="grid" style={`grid-template-columns: 220px 1fr;`}>
+  <div class="runsheet-shell mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <div class="min-w-[1100px] print:min-w-0">
+      <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
         <div class="border-b border-slate-200 bg-white">
-          <div class="grid" style={`grid-template-columns: repeat(${slots.length}, ${pxPerSlot}px); height: 40px;`}>
+          <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: 40px;`}>
             {slots.map((s) => (
-              <div class="border-l border-slate-200 px-2 pt-2 text-[12px] text-slate-600">
+              <div class="runsheet-time-label border-l border-slate-200 px-2 pt-2 text-[12px] text-slate-600">
                 {s.label}
               </div>
             ))}
@@ -96,12 +162,20 @@ function breakMarker(duration: number) {
         if (areaShifts.length === 0) return null;
 
         return (
-          <div class="border-t border-slate-200">
-            <div class="grid" style="grid-template-columns: 220px 1fr;">
-              <div class="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+          <div class="runsheet-area border-t border-slate-200">
+            <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
+              <div class="runsheet-area-label sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
                 {a.label}
               </div>
-              <div class="bg-slate-50"></div>
+              <div class="bg-slate-50">
+                <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: 40px;`}>
+                  {slots.map((s) => (
+                    <div class="runsheet-time-label border-l border-slate-200 px-2 pt-2 text-[12px] text-slate-600">
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {areaShifts.map((s) => {
@@ -111,8 +185,8 @@ function breakMarker(duration: number) {
               const palette = areaPalette[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
 
               return (
-                <div class="grid" style="grid-template-columns: 220px 1fr;">
-                  <div class="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-sm">
+                <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
+                  <div class="runsheet-person-cell sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-sm">
                     <div class="flex items-center justify-between gap-2">
                       <span class={s.status_key === 'sick' ? 'font-semibold text-rose-700' : 'font-medium text-slate-900'}>
                         {s.name}
@@ -124,21 +198,21 @@ function breakMarker(duration: number) {
 
                   <div
                     class="relative border-t border-slate-100"
-                    style={`height: 42px; width: ${slots.length * pxPerSlot}px;`}
+                    style="height: var(--runsheet-row-height); width: var(--runsheet-grid-width);"
                   >
                     {/* grid lines */}
                     {slots.map((sl, i) => (
                       <div
                         class="absolute top-0 h-full border-l border-slate-100"
-                        style={`left:${i * pxPerSlot}px;`}
+                        style={`left: calc(${i} * var(--runsheet-slot-width));`}
                       ></div>
                     ))}
 
                     {/* shift block */}
                     {s.status_key !== 'sick' && (
                       <div
-                        class={`absolute top-[6px] h-[30px] rounded-md border ${palette}`}
-                        style={`left:${leftPx(start)}px; width:${widthPx(start, end)}px;`}
+                        class={`runsheet-shift-block absolute top-[6px] h-[30px] rounded-md border ${palette}`}
+                        style={`left: calc(${leftSlots(start)} * var(--runsheet-slot-width)); width: calc(${widthSlots(start, end)} * var(--runsheet-slot-width));`}
                         title={`${s.start_time}–${s.end_time}`}
                       ></div>
                     )}
@@ -150,8 +224,8 @@ function breakMarker(duration: number) {
                         if (bm == null) return null;
                         return (
                           <div
-                            class="absolute top-[7px] grid place-items-center text-[10px] font-black leading-[10px] text-slate-900"
-                            style={`left:${leftPx(bm) - 6}px; width:12px; height:28px;`}
+                            class="runsheet-break-marker absolute top-[7px] grid place-items-center text-[10px] font-black leading-[10px] text-slate-900"
+                            style={`left: calc(${leftSlots(bm)} * var(--runsheet-slot-width) - 6px); width:12px; height:28px;`}
                             title={`Break ${b.start_time} (${b.duration_minutes}m)`}
                           >
                             {breakMarker(b.duration_minutes)}
@@ -168,7 +242,7 @@ function breakMarker(duration: number) {
     </div>
   </div>
 
-  <div class="mt-2 text-xs text-slate-600">
+  <div class="runsheet-legend mt-2 text-xs text-slate-600">
     Break marker legend: 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
   </div>
 </section>
