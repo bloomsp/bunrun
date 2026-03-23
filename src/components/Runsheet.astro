@@ -32,7 +32,7 @@ const slots = buildTimeSlots();
 const startM = parseHHMM(RUNSHEET_START) ?? 360;
 const endM = parseHHMM(RUNSHEET_END) ?? 1275;
 
-const pxPerSlot = 72; // width per 30-min slot (wider so labels don't overlap)
+const pxPerSlot = 42; // width per 30-min slot (wider so labels don't overlap)
 
 const breaksByShift = new Map<number, Break[]>();
 for (const b of breaks) {
