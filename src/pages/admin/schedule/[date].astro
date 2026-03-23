@@ -76,6 +76,25 @@ for (const b of breaks) {
   breaksByShift.set(b.shift_id, arr);
 }
 
+const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
+
+const members = (await DB.prepare(
+  'SELECT id, name, active, all_areas, default_area_key FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
+).all()).results as Member[];
+
+const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
+
+const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
+  .results as Status[];
+
+const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
+const permsByMember = new Map<number, Set<string>>();
+for (const p of perms) {
+  const set = permsByMember.get(p.member_id) ?? new Set<string>();
+  set.add(p.area_key);
+  permsByMember.set(p.member_id, set);
+}
+
 const workingShiftIds = new Set(shifts.filter((s) => s.status_key === 'working').map((s) => s.id));
 const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
 
@@ -98,7 +117,7 @@ function canCoverArea(memberId: number, areaKey: string) {
   const m = memberById.get(memberId);
   if (!m) return false;
   // @ts-expect-error optional from DB
-  if (m.all_areas === 1) return true;
+  if ((m as any).all_areas === 1) return true;
   const set = permsByMember.get(memberId);
   return Boolean(set?.has(areaKey));
 }
@@ -146,7 +165,6 @@ for (const b of breaks) {
     continue;
   }
 
-  // off area
   const offShift = shifts.find((s) => s.id === b.shift_id);
   const offAreaKey = offShift?.home_area_key;
   if (!offAreaKey) continue;
@@ -169,25 +187,6 @@ for (const b of breaks) {
 }
 
 const invalidReasonByBreakId = new Map(invalidCoverBreaks.map((x) => [x.id, x.reason]));
-
-const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
-
-const members = (await DB.prepare(
-  'SELECT id, name, active, all_areas, default_area_key FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
-).all()).results as Member[];
-
-const areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
-
-const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
-  .results as Status[];
-
-const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
-const permsByMember = new Map<number, Set<string>>();
-for (const p of perms) {
-  const set = permsByMember.get(p.member_id) ?? new Set<string>();
-  set.add(p.area_key);
-  permsByMember.set(p.member_id, set);
-}
 
 const op = operatingHoursFor(date);
 const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
