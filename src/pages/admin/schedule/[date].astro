@@ -6,6 +6,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { breakAllowanceMinutes } from '../../../lib/breaks';
+import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
 import Runsheet from '../../../components/Runsheet.astro';
 
 const guard = requireRole(Astro.request, 'admin');
@@ -24,7 +25,7 @@ type Member = {
   default_area_key: string | null;
 };
 
-type Area = { key: string; label: string };
+type Area = { key: string; label: string; min_staff?: number };
 
 type ShiftRow = {
   id: number;
@@ -46,6 +47,12 @@ type BreakRow = {
 };
 
 type Status = { key: string; label: string; blocks_coverage: number };
+
+type WeekSummary = {
+  date: string;
+  shift_count: number;
+  working_count: number;
+};
 
 const DB = await getDB();
 
@@ -193,6 +200,33 @@ const op = operatingHoursFor(date);
 const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 const notice = Astro.url.searchParams.get('notice');
 const errorMsg = Astro.url.searchParams.get('error');
+const weekStart = startOfWeek(date);
+const weekDates = weekDatesFor(date);
+const previousWeekDate = addDays(weekStart, -7);
+const nextWeekDate = addDays(weekStart, 7);
+const weekEnd = weekDates[6] ?? date;
+const weekSummaryRows = (
+  await DB.prepare(
+    `SELECT sc.date,
+            COUNT(sh.id) AS shift_count,
+            SUM(CASE WHEN sh.status_key='working' THEN 1 ELSE 0 END) AS working_count
+     FROM schedules sc
+     LEFT JOIN shifts sh ON sh.schedule_id = sc.id
+     WHERE sc.date >= ? AND sc.date <= ?
+     GROUP BY sc.date`
+  )
+    .bind(weekStart, weekEnd)
+    .all()
+).results as WeekSummary[];
+const weekSummaryByDate = new Map(
+  weekSummaryRows.map((row) => [
+    row.date,
+    {
+      shiftCount: Number(row.shift_count ?? 0),
+      workingCount: Number(row.working_count ?? 0)
+    }
+  ])
+);
 
 function minutesOrNull(v: string | null) {
   if (!v) return null;
@@ -240,11 +274,46 @@ function rangeFor(start: string, duration: number) {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Schedule</h1>
-        <div class="mt-1 text-slate-700">{date}</div>
+        <div class="mt-1 text-slate-700">{formatLongDateLabel(date)}</div>
+        <div class="mt-1 text-sm text-slate-500">Week of {weekStart}</div>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${previousWeekDate}`}>
+          Previous week
+        </a>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${nextWeekDate}`}>
+          Next week
+        </a>
         <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin/schedule">Change date</a>
         <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin">Admin</a>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-x-auto">
+      <div class="flex min-w-max gap-3">
+        {weekDates.map((tabDate) => {
+          const summary = weekSummaryByDate.get(tabDate) ?? { shiftCount: 0, workingCount: 0 };
+          const active = tabDate === date;
+          return (
+            <a
+              class:list={[
+                'min-w-[132px] rounded-2xl border px-4 py-3 text-left transition',
+                active
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
+              ]}
+              href={`/admin/schedule/${tabDate}`}
+            >
+              <div class="text-sm font-semibold">{formatShortDateLabel(tabDate)}</div>
+              <div class="mt-1 text-xs text-slate-600">
+                {summary.shiftCount} shift{summary.shiftCount === 1 ? '' : 's'}
+              </div>
+              <div class="mt-0.5 text-xs text-slate-500">
+                {summary.workingCount} working
+              </div>
+            </a>
+          );
+        })}
       </div>
     </div>
 
@@ -287,6 +356,38 @@ function rangeFor(start: string, duration: number) {
         </div>
       </div>
     )}
+
+    <div class="mt-8 grid gap-4 xl:grid-cols-2">
+      <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-lg font-medium">Copy day</h2>
+        <p class="mt-2 text-sm text-slate-600">Replace this day's shifts and breaks with another date.</p>
+        <form class="mt-4 flex flex-wrap items-end gap-3" method="post" action="/api/schedule/copy-day" onsubmit={`return confirm('Copy the selected day into ${date}? This overwrites the current day.')`}>
+          <input type="hidden" name="targetDate" value={date} />
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Source day</div>
+            <input class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2" type="date" name="sourceDate" value={addDays(date, -7)} required />
+          </label>
+          <button class="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+            Copy into {date}
+          </button>
+        </form>
+      </section>
+
+      <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="text-lg font-medium">Copy week</h2>
+        <p class="mt-2 text-sm text-slate-600">Replace every day in this week with the matching day from another week.</p>
+        <form class="mt-4 flex flex-wrap items-end gap-3" method="post" action="/api/schedule/copy-week" onsubmit={`return confirm('Copy the selected week into the week of ${weekStart}? This overwrites all 7 days.')`}>
+          <input type="hidden" name="targetWeekDate" value={weekStart} />
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Source week</div>
+            <input class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2" type="date" name="sourceWeekDate" value={addDays(weekStart, -7)} required />
+          </label>
+          <button class="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800" type="submit">
+            Copy into week of {weekStart}
+          </button>
+        </form>
+      </section>
+    </div>
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 class="text-lg font-medium">Add shift</h2>
