@@ -3,6 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
+import { findOverlappingShift } from '../../../lib/shifts';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -41,6 +42,28 @@ export const POST: APIRoute = async ({ request }) => {
   await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
   const scheduleId = sched.id as number;
+
+  const existingShifts = (
+    await DB.prepare(
+      'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=? AND member_id=?'
+    )
+      .bind(scheduleId, memberId)
+      .all()
+  ).results as Array<{
+    id: number;
+    member_id: number;
+    home_area_key: string;
+    status_key: string;
+    start_time: string;
+    end_time: string | null;
+  }>;
+
+  const overlap = findOverlappingShift(existingShifts, { start: startMin, end: endMin });
+  if (overlap) {
+    return redirectWithMessage(`/admin/schedule/${date}#shifts`, {
+      error: `Shift overlaps an existing shift for this member (${overlap.start_time}-${overlap.end_time ?? '—'}).`
+    });
+  }
 
   await DB.prepare(
     `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)

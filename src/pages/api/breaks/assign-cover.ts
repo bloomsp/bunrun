@@ -3,8 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { overlap, minutesRange } from '../../../lib/breaks';
-
-type StaffRow = { area_key: string; label: string; min_staff: number; count: number };
+import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -26,7 +25,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const target = (await DB.prepare(
     `SELECT b.id as break_id, b.start_time, b.duration_minutes,
-            s.schedule_id, s.home_area_key, s.member_id AS off_member_id
+            s.id AS off_shift_id, s.schedule_id, s.home_area_key, s.member_id AS off_member_id
      FROM breaks b
      JOIN shifts s ON s.id = b.shift_id
      WHERE b.id=?`
@@ -39,36 +38,31 @@ export const POST: APIRoute = async ({ request }) => {
   const targetRange = minutesRange(target.start_time, target.duration_minutes);
   if (!targetRange) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid break time' });
 
-  // Load off-person shift
   const offShift = (await DB.prepare(
-    `SELECT s.id, s.status_key, s.home_area_key
+    `SELECT s.id, s.status_key, s.home_area_key, s.start_time, s.end_time
      FROM shifts s
-     WHERE s.schedule_id=? AND s.member_id=?`
+     WHERE s.id=?`
   )
-    .bind(target.schedule_id, target.off_member_id)
+    .bind(target.off_shift_id)
     .first()) as any;
 
   if (!offShift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Shift not found for that member' });
 
   if (coverMemberId !== null) {
-    const coverShift = (await DB.prepare(
-      `SELECT s.id, s.status_key, s.home_area_key, m.all_areas
+    const coverShifts = (
+      await DB.prepare(
+        `SELECT s.id, s.member_id, s.home_area_key, s.status_key, s.start_time, s.end_time, m.all_areas
        FROM shifts s
        JOIN members m ON m.id = s.member_id
        WHERE s.schedule_id=? AND s.member_id=?`
-    )
-      .bind(target.schedule_id, coverMemberId)
-      .first()) as any;
+      )
+        .bind(target.schedule_id, coverMemberId)
+        .all()
+    ).results as any[];
+
+    const coverShift = firstActiveShiftInRange(coverShifts, targetRange, { workingOnly: true }) as any;
 
     if (!coverShift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not on the roster for this day' });
-
-    const status = (await DB.prepare('SELECT blocks_coverage FROM statuses WHERE key=?')
-      .bind(coverShift.status_key)
-      .first()) as any;
-
-    if (status?.blocks_coverage === 1) {
-      return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not available (status blocks coverage)' });
-    }
 
     const canWork = coverShift.all_areas === 1
       ? true
@@ -119,20 +113,18 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Area minimum staffing check
-    const staff = (await DB.prepare(
-      `SELECT a.key AS area_key, a.label, a.min_staff,
-              COUNT(s.id) AS count
-       FROM areas a
-       LEFT JOIN shifts s
-         ON s.home_area_key = a.key
-        AND s.schedule_id = ?
-        AND s.status_key = 'working'
-       GROUP BY a.key, a.label, a.min_staff`
-    )
-      .bind(target.schedule_id)
-      .all()).results as StaffRow[];
+    const shifts = (
+      await DB.prepare(
+        'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=?'
+      )
+        .bind(target.schedule_id)
+        .all()
+    ).results as any[];
+    const areas = (
+      await DB.prepare('SELECT key AS area_key, label, min_staff FROM areas').all()
+    ).results as Array<{ area_key: string; label: string; min_staff: number }>;
 
-    const counts = new Map(staff.map((r) => [r.area_key, Number(r.count)]));
+    const counts = countWorkingShiftsByAreaInRange(shifts, targetRange);
 
     // Off-person leaves their area
     counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) - 1);
@@ -143,7 +135,7 @@ export const POST: APIRoute = async ({ request }) => {
       counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) + 1);
     }
 
-    const failing = staff.filter((r) => (counts.get(r.area_key) ?? 0) < Number(r.min_staff));
+    const failing = areas.filter((r) => (counts.get(r.area_key) ?? 0) < Number(r.min_staff));
     if (failing.length) {
       const msg = failing
         .map((r) => `${r.label} below minimum (${counts.get(r.area_key) ?? 0}/${r.min_staff})`)

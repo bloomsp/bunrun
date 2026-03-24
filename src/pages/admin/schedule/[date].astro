@@ -7,6 +7,7 @@ import { getDB } from '../../../lib/db';
 import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { breakAllowanceMinutes } from '../../../lib/breaks';
 import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
+import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
 import Runsheet from '../../../components/Runsheet.astro';
 
 const guard = requireRole(Astro.request, 'admin');
@@ -96,8 +97,6 @@ for (const b of breaks) {
   breaksByShift.set(b.shift_id, arr);
 }
 
-const assignedMemberIds = new Set(shifts.map((s) => s.member_id));
-
 const members = (await DB.prepare(
   'SELECT id, name, active, all_areas, default_area_key FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
 ).all()).results as Member[];
@@ -119,8 +118,13 @@ const memberById = new Map(members.map((m) => [m.id, m]));
 const areaByKey = new Map(areas.map((a) => [a.key, a]));
 const statusByKey = new Map(statuses.map((s) => [s.key, s]));
 const shiftById = new Map(shifts.map((s) => [s.id, s]));
-const shiftByMember = new Map(shifts.map((s) => [s.member_id, s]));
 const op = operatingHoursFor(date);
+const shiftsByMember = new Map<number, ShiftRow[]>();
+for (const shift of shifts) {
+  const arr = shiftsByMember.get(shift.member_id) ?? [];
+  arr.push(shift);
+  shiftsByMember.set(shift.member_id, arr);
+}
 
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
 const workingShifts = shifts.filter((s) => s.status_key === 'working');
@@ -128,12 +132,6 @@ const workingShiftIds = new Set(workingShifts.map((s) => s.id));
 const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
 
 // base working counts per area
-const baseCounts = new Map<string, number>();
-for (const a of areas) baseCounts.set(a.key, 0);
-for (const s of workingShifts) {
-  baseCounts.set(s.home_area_key, (baseCounts.get(s.home_area_key) ?? 0) + 1);
-}
-
 const shiftViews = shifts.map((s) => {
   const startMinutes = parseHHMM(s.start_time) ?? 0;
   const endMinutes = s.end_time ? parseHHMM(s.end_time) : null;
@@ -162,18 +160,25 @@ for (const shift of shiftViews) {
     workingShiftViewsByArea.set(shift.home_area_key, workingAreaShifts);
   }
 }
-const availableMembers = members.filter((m) => !assignedMemberIds.has(m.id));
 const breakRangeById = new Map<number, { start: number; end: number }>();
 for (const b of breaks) {
   const parsed = rangeFor(b.start_time, b.duration_minutes);
   if (parsed) breakRangeById.set(b.id, parsed);
 }
 const coveredBreaksByMember = new Map<number, BreakRow[]>();
+const breaksByOffMember = new Map<number, BreakRow[]>();
 for (const b of breaks) {
   if (b.cover_member_id == null) continue;
   const arr = coveredBreaksByMember.get(b.cover_member_id) ?? [];
   arr.push(b);
   coveredBreaksByMember.set(b.cover_member_id, arr);
+}
+for (const b of breaks) {
+  const offShift = shiftById.get(b.shift_id);
+  if (!offShift) continue;
+  const arr = breaksByOffMember.get(offShift.member_id) ?? [];
+  arr.push(b);
+  breaksByOffMember.set(offShift.member_id, arr);
 }
 const plannedBreakMinutesByShift = new Map<number, number>();
 for (const [shiftId, rows] of breaksByShift.entries()) {
@@ -199,9 +204,7 @@ function coverOverlaps(memberId: number, target: { start: number; end: number },
     if (r && overlap(target.start, target.end, r.start, r.end)) return true;
   }
 
-  const ownShift = shiftByMember.get(memberId);
-  if (!ownShift) return false;
-  for (const b of breaksByShift.get(ownShift.id) ?? []) {
+  for (const b of breaksByOffMember.get(memberId) ?? []) {
     if (b.id === breakId) continue;
     const r = breakRangeById.get(b.id);
     if (r && overlap(target.start, target.end, r.start, r.end)) return true;
@@ -209,10 +212,14 @@ function coverOverlaps(memberId: number, target: { start: number; end: number },
   return false;
 }
 
-function violatesMins(offAreaKey: string, coverMemberId: number) {
-  const coverShift = shiftByMember.get(coverMemberId);
+function activeShiftForMember(memberId: number, target: { start: number; end: number }, opts?: { workingOnly?: boolean }) {
+  return firstActiveShiftInRange(shiftsByMember.get(memberId) ?? [], target, { workingOnly: opts?.workingOnly });
+}
+
+function violatesMins(offAreaKey: string, coverMemberId: number, target: { start: number; end: number }) {
+  const coverShift = activeShiftForMember(coverMemberId, target, { workingOnly: true });
   if (!coverShift) return true;
-  const counts = new Map(baseCounts);
+  const counts = countWorkingShiftsByAreaInRange(shifts, target);
   counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) - 1);
   if (coverShift.home_area_key !== offAreaKey) {
     counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
@@ -231,13 +238,10 @@ if (showBreakPlanning) {
     if (b.cover_member_id == null) continue;
 
     const coverId = b.cover_member_id;
-    const coverShift = shiftByMember.get(coverId);
+    const target = breakRangeById.get(b.id);
+    const coverShift = target ? activeShiftForMember(coverId, target, { workingOnly: true }) : null;
     if (!coverShift) {
       invalidCoverBreaks.push({ id: b.id, reason: 'Cover not on roster' });
-      continue;
-    }
-    if (coverShift.status_key !== 'working') {
-      invalidCoverBreaks.push({ id: b.id, reason: 'Cover not available (status)' });
       continue;
     }
 
@@ -250,13 +254,12 @@ if (showBreakPlanning) {
       continue;
     }
 
-    const target = rangeFor(b.start_time, b.duration_minutes);
     if (target && coverOverlaps(coverId, target, b.id)) {
       invalidCoverBreaks.push({ id: b.id, reason: 'Cover conflict (overlap)' });
       continue;
     }
 
-    if (violatesMins(offAreaKey, coverId)) {
+    if (target && violatesMins(offAreaKey, coverId, target)) {
       invalidCoverBreaks.push({ id: b.id, reason: 'Area minimum violated' });
       continue;
     }
@@ -296,11 +299,6 @@ const weekSummaryByDate = new Map(
   ])
 );
 
-function minutesOrNull(v: string | null) {
-  if (!v) return null;
-  return parseHHMM(v);
-}
-
 function warningsForShift(start: string, end: string, minutes: number): string[] {
   const out: string[] = [];
   if (minutes > 9 * 60) out.push('Long shift (> 9h)');
@@ -316,8 +314,6 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 }
 
 function canWorkArea(memberId: number, areaKey: string) {
-  const shift = shiftByMember.get(memberId);
-  if (!shift) return false;
   const m = memberById.get(memberId);
   if (!m) return false;
   if (m.all_areas === 1) return true;
@@ -339,8 +335,9 @@ function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
   const target = breakRangeById.get(targetBreak.id);
   return workingShifts.filter((candidate) => {
     if (candidate.member_id === offShift.member_id) return false;
+    if (!target) return false;
+    if (candidate.id !== activeShiftForMember(candidate.member_id, target, { workingOnly: true })?.id) return false;
     if (!canWorkArea(candidate.member_id, offShift.home_area_key)) return false;
-    if (!target) return true;
 
     for (const ownBreak of breaksByShift.get(candidate.id) ?? []) {
       const ownRange = breakRangeById.get(ownBreak.id);
@@ -502,7 +499,7 @@ if (showBreakPlanning) {
             data-bunrun-member
           >
             <option value="" selected>Select…</option>
-            {availableMembers.map((m) => (
+            {members.map((m) => (
                 <option value={m.id} data-default-area={m.default_area_key ?? ''}>
                   {m.name}
                 </option>

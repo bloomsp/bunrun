@@ -1,6 +1,7 @@
 const BRISBANE_OFFSET = '+10:00';
 
 type ShiftCopyRow = {
+  id: number;
   member_id: number;
   home_area_key: string;
   status_key: string;
@@ -10,7 +11,7 @@ type ShiftCopyRow = {
 };
 
 type BreakCopyRow = {
-  shift_member_id: number;
+  source_shift_id: number;
   start_time: string;
   duration_minutes: number;
   cover_member_id: number | null;
@@ -82,7 +83,7 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
 
   const sourceShifts = (
     await DB.prepare(
-      `SELECT member_id, home_area_key, status_key, start_time, end_time, shift_minutes
+      `SELECT id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes
        FROM shifts
        WHERE schedule_id=?
        ORDER BY id ASC`
@@ -93,7 +94,7 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
 
   const sourceBreaks = (
     await DB.prepare(
-      `SELECT s.member_id AS shift_member_id, b.start_time, b.duration_minutes, b.cover_member_id
+      `SELECT b.shift_id AS source_shift_id, b.start_time, b.duration_minutes, b.cover_member_id
        FROM breaks b
        JOIN shifts s ON s.id = b.shift_id
        WHERE s.schedule_id=?
@@ -105,8 +106,9 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
 
   await DB.prepare('DELETE FROM shifts WHERE schedule_id=?').bind(targetScheduleId).run();
 
+  const targetShiftIdBySourceShiftId = new Map<number, number>();
   for (const shift of sourceShifts) {
-    await DB.prepare(
+    const insertResult = await DB.prepare(
       `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
@@ -120,16 +122,28 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
         shift.shift_minutes
       )
       .run();
-  }
+    const insertedId = Number((insertResult as any)?.meta?.last_row_id ?? 0);
+    if (insertedId > 0) {
+      targetShiftIdBySourceShiftId.set(shift.id, insertedId);
+      continue;
+    }
 
-  const targetShifts = (
-    await DB.prepare('SELECT id, member_id FROM shifts WHERE schedule_id=?').bind(targetScheduleId).all()
-  ).results as Array<{ id: number; member_id: number }>;
-  const targetShiftIdByMember = new Map(targetShifts.map((shift) => [shift.member_id, shift.id]));
+    const inserted = (await DB.prepare(
+      `SELECT id
+       FROM shifts
+       WHERE schedule_id=? AND member_id=? AND home_area_key=? AND status_key=? AND start_time=?
+         AND ((end_time IS NULL AND ? IS NULL) OR end_time=?)
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+      .bind(targetScheduleId, shift.member_id, shift.home_area_key, shift.status_key, shift.start_time, shift.end_time, shift.end_time)
+      .first()) as { id: number } | null;
+    if (inserted?.id) targetShiftIdBySourceShiftId.set(shift.id, inserted.id);
+  }
 
   let copiedBreaks = 0;
   for (const item of sourceBreaks) {
-    const targetShiftId = targetShiftIdByMember.get(item.shift_member_id);
+    const targetShiftId = targetShiftIdBySourceShiftId.get(item.source_shift_id);
     if (!targetShiftId) continue;
     await DB.prepare(
       'INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)'

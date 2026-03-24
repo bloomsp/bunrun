@@ -4,6 +4,7 @@ import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { computeShiftMinutes, generateBreakTemplate, proposeBreakTimes, rangeFor } from '../../../lib/autogen';
 import { overlap, minutesRange } from '../../../lib/breaks';
+import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
 
 type ShiftRow = {
   id: number;
@@ -52,7 +53,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Context for cover picking
   const allShifts = (await DB.prepare(
-    `SELECT id, member_id, home_area_key, status_key
+    `SELECT id, member_id, home_area_key, status_key, start_time, end_time
      FROM shifts WHERE schedule_id=?`
   )
     .bind(scheduleId)
@@ -71,20 +72,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   const areas = (await DB.prepare('SELECT key, min_staff FROM areas').all()).results as any[];
   const minByArea = new Map<string, number>(areas.map((a) => [a.key, Number(a.min_staff ?? 0)]));
-
-  const staffRows = (await DB.prepare(
-    `SELECT a.key AS area_key, COUNT(s.id) AS count
-     FROM areas a
-     LEFT JOIN shifts s
-       ON s.home_area_key=a.key
-      AND s.schedule_id=?
-      AND s.status_key='working'
-     GROUP BY a.key`
-  )
-    .bind(scheduleId)
-    .all()).results as any[];
-
-  const baseCounts = new Map<string, number>(staffRows.map((r) => [r.area_key, Number(r.count)]));
 
   const canWork = (memberId: number, areaKey: string) => {
     const m = memberById.get(memberId);
@@ -134,6 +121,7 @@ export const POST: APIRoute = async ({ request }) => {
       const candidates = allShifts
         .filter((s: any) => s.status_key === 'working')
         .filter((s: any) => s.member_id !== shift.member_id)
+        .filter((s: any) => firstActiveShiftInRange(allShifts.filter((x: any) => x.member_id === s.member_id), offRange, { workingOnly: true })?.id === s.id)
         .filter((s: any) => canWork(s.member_id, shift.home_area_key));
 
       let picked: any = null;
@@ -154,7 +142,7 @@ export const POST: APIRoute = async ({ request }) => {
         })) continue;
 
         // area min check
-        const counts = new Map(baseCounts);
+        const counts = countWorkingShiftsByAreaInRange(allShifts, offRange);
         counts.set(shift.home_area_key, (counts.get(shift.home_area_key) ?? 0) - 1);
         if (c.home_area_key !== shift.home_area_key) {
           counts.set(c.home_area_key, (counts.get(c.home_area_key) ?? 0) - 1);

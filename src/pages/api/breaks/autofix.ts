@@ -3,6 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { overlap, minutesRange } from '../../../lib/breaks';
+import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
 
 type BreakRow = {
   id: number;
@@ -20,6 +21,8 @@ type ShiftRow = {
   member_id: number;
   home_area_key: string;
   status_key: string;
+  start_time: string;
+  end_time: string | null;
 };
 
 export const POST: APIRoute = async ({ request }) => {
@@ -36,13 +39,17 @@ export const POST: APIRoute = async ({ request }) => {
   const scheduleId = sched.id as number;
 
   const shifts = (await DB.prepare(
-    'SELECT id, member_id, home_area_key, status_key FROM shifts WHERE schedule_id=?'
+    'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=?'
   )
     .bind(scheduleId)
     .all()).results as ShiftRow[];
 
-  const memberShift = new Map<number, ShiftRow>();
-  for (const s of shifts) memberShift.set(s.member_id, s);
+  const shiftsByMember = new Map<number, ShiftRow[]>();
+  for (const s of shifts) {
+    const arr = shiftsByMember.get(s.member_id) ?? [];
+    arr.push(s);
+    shiftsByMember.set(s.member_id, arr);
+  }
 
   const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as any[];
   const memberById = new Map(members.map((m) => [m.id, m]));
@@ -57,20 +64,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas').all()).results as any[];
   const minByArea = new Map<string, number>(areas.map((a) => [a.key, Number(a.min_staff ?? 0)]));
-
-  const staffRows = (await DB.prepare(
-    `SELECT a.key AS area_key, COUNT(s.id) AS count
-     FROM areas a
-     LEFT JOIN shifts s
-       ON s.home_area_key=a.key
-      AND s.schedule_id=?
-      AND s.status_key='working'
-     GROUP BY a.key`
-  )
-    .bind(scheduleId)
-    .all()).results as any[];
-
-  const baseCounts = new Map<string, number>(staffRows.map((r) => [r.area_key, Number(r.count)]));
 
   const breaks = (await DB.prepare(
     `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
@@ -90,12 +83,15 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   function isBlockedByStatus(memberId: number) {
-    const sh = memberShift.get(memberId);
-    return !sh || sh.status_key !== 'working';
+    return !(shiftsByMember.get(memberId)?.some((sh) => sh.status_key === 'working'));
   }
 
-  function violatesAreaMins(offAreaKey: string, coverMemberId: number, coverAreaKey: string) {
-    const counts = new Map(baseCounts);
+  function activeShift(memberId: number, target: { start: number; end: number }) {
+    return firstActiveShiftInRange(shiftsByMember.get(memberId) ?? [], target, { workingOnly: true }) as ShiftRow | null;
+  }
+
+  function violatesAreaMins(offAreaKey: string, coverAreaKey: string, target: { start: number; end: number }) {
+    const counts = countWorkingShiftsByAreaInRange(shifts, target);
     // off-person leaves their area
     counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) - 1);
     if (coverAreaKey !== offAreaKey) {
@@ -128,17 +124,16 @@ export const POST: APIRoute = async ({ request }) => {
   function isCoverValid(b: BreakRow): boolean {
     if (b.cover_member_id == null) return false;
     const coverId = b.cover_member_id;
-    const coverShift = memberShift.get(coverId);
+    const target = breakRange(b);
+    if (!target) return false;
+    const coverShift = activeShift(coverId, target);
     if (!coverShift) return false;
     if (isBlockedByStatus(coverId)) return false;
     if (!canWork(coverId, b.off_area_key)) return false;
 
-    const target = breakRange(b);
-    if (!target) return false;
-
     if (hasOverlapForCover(coverId, target, b.id)) return false;
 
-    if (violatesAreaMins(b.off_area_key, coverId, coverShift.home_area_key)) return false;
+    if (violatesAreaMins(b.off_area_key, coverShift.home_area_key, target)) return false;
 
     return true;
   }
@@ -150,9 +145,10 @@ export const POST: APIRoute = async ({ request }) => {
     for (const s of shifts) {
       if (s.status_key !== 'working') continue;
       if (s.member_id === b.off_member_id) continue;
+      if (activeShift(s.member_id, target)?.id !== s.id) continue;
       if (!canWork(s.member_id, b.off_area_key)) continue;
       if (hasOverlapForCover(s.member_id, target, b.id)) continue;
-      if (violatesAreaMins(b.off_area_key, s.member_id, s.home_area_key)) continue;
+      if (violatesAreaMins(b.off_area_key, s.home_area_key, target)) continue;
       return s.member_id;
     }
     return null;
@@ -163,8 +159,10 @@ export const POST: APIRoute = async ({ request }) => {
 
   for (const b of breaks) {
     // Only care about breaks for working shifts
-    const offShift = memberShift.get(b.off_member_id);
-    if (!offShift || offShift.status_key !== 'working') continue;
+    const target = breakRange(b);
+    if (!target) continue;
+    const offShift = activeShift(b.off_member_id, target);
+    if (!offShift) continue;
 
     const valid = b.cover_member_id != null && isCoverValid(b);
     if (valid) continue;

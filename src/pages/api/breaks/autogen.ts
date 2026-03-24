@@ -2,8 +2,9 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
-import { computeShiftMinutes, generateBreakTemplate, proposeBreakTimes, rangeFor, breaksOverlap } from '../../../lib/autogen';
+import { computeShiftMinutes, generateBreakTemplate, proposeBreakTimes, rangeFor } from '../../../lib/autogen';
 import { overlap, minutesRange } from '../../../lib/breaks';
+import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -39,7 +40,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Preload context for cover picking
   const shifts = (await DB.prepare(
-    `SELECT id, member_id, home_area_key, status_key
+    `SELECT id, member_id, home_area_key, status_key, start_time, end_time
      FROM shifts WHERE schedule_id=?`
   )
     .bind(shift.schedule_id)
@@ -57,20 +58,6 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas').all()).results as any[];
-
-  const staffRows = (await DB.prepare(
-    `SELECT a.key AS area_key, a.min_staff, COUNT(s.id) AS count
-     FROM areas a
-     LEFT JOIN shifts s
-       ON s.home_area_key=a.key
-      AND s.schedule_id=?
-      AND s.status_key='working'
-     GROUP BY a.key, a.min_staff`
-  )
-    .bind(shift.schedule_id)
-    .all()).results as any[];
-
-  const baseCounts = new Map<string, number>(staffRows.map((r) => [r.area_key, Number(r.count)]));
   const minByArea = new Map<string, number>(areas.map((a) => [a.key, Number(a.min_staff ?? 0)]));
 
   // Helper: can member work covered area
@@ -90,6 +77,7 @@ export const POST: APIRoute = async ({ request }) => {
     const candidates = shifts
       .filter((s: any) => s.status_key === 'working')
       .filter((s: any) => s.member_id !== shift.member_id)
+      .filter((s: any) => firstActiveShiftInRange(shifts.filter((x: any) => x.member_id === s.member_id), offRange, { workingOnly: true })?.id === s.id)
       .filter((s: any) => canWork(s.member_id, shift.home_area_key));
 
     // existing breaks (already inserted for previous proposed breaks + any other shifts)
@@ -120,7 +108,7 @@ export const POST: APIRoute = async ({ request }) => {
       })) continue;
 
       // area mins simulation
-      const counts = new Map(baseCounts);
+      const counts = countWorkingShiftsByAreaInRange(shifts, offRange);
       // off-person leaves their area
       counts.set(shift.home_area_key, (counts.get(shift.home_area_key) ?? 0) - 1);
 
