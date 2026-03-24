@@ -117,6 +117,7 @@ const areaByKey = new Map(areas.map((a) => [a.key, a]));
 const statusByKey = new Map(statuses.map((s) => [s.key, s]));
 const shiftById = new Map(shifts.map((s) => [s.id, s]));
 const shiftByMember = new Map(shifts.map((s) => [s.member_id, s]));
+const op = operatingHoursFor(date);
 
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
 const workingShifts = shifts.filter((s) => s.status_key === 'working');
@@ -259,7 +260,6 @@ for (const b of breaks) {
 
 const invalidReasonByBreakId = new Map(invalidCoverBreaks.map((x) => [x.id, x.reason]));
 
-const op = operatingHoursFor(date);
 const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 const notice = Astro.url.searchParams.get('notice');
 const errorMsg = Astro.url.searchParams.get('error');
