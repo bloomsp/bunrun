@@ -24,13 +24,13 @@ export const POST: APIRoute = async ({ request }) => {
   const date = (form.get('date') || '').toString();
   const mode = (form.get('mode') || 'missing').toString(); // missing|overwrite
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
-  if (mode !== 'missing' && mode !== 'overwrite') return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid mode' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  if (mode !== 'missing' && mode !== 'overwrite') return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid mode' });
 
   const DB = await getDB();
 
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
-  if (!sched) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Schedule not found' });
+  if (!sched) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Schedule not found' });
 
   const scheduleId = sched.id as number;
 
@@ -194,5 +194,5 @@ export const POST: APIRoute = async ({ request }) => {
   const tail = Number(missing?.n ?? 0) > 0 ? ' (some missing cover)' : '';
   const label = mode === 'overwrite' ? 'Breaks generated (overwrite)' : 'Breaks generated (missing only)';
 
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: `${label}${tail}` });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: `${label}${tail}` });
 };

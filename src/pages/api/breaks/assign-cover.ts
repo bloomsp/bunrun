@@ -16,10 +16,10 @@ export const POST: APIRoute = async ({ request }) => {
   const coverMemberIdRaw = (form.get('coverMemberId') || '').toString();
   const coverMemberId = coverMemberIdRaw === '' ? null : Number(coverMemberIdRaw);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
-  if (!Number.isFinite(breakId) || breakId <= 0) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid break' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  if (!Number.isFinite(breakId) || breakId <= 0) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid break' });
   if (coverMemberId !== null && (!Number.isFinite(coverMemberId) || coverMemberId <= 0)) {
-    return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid cover selection' });
+    return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid cover selection' });
   }
 
   const DB = await getDB();
@@ -34,10 +34,10 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(breakId)
     .first()) as any;
 
-  if (!target) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Break not found' });
+  if (!target) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Break not found' });
 
   const targetRange = minutesRange(target.start_time, target.duration_minutes);
-  if (!targetRange) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid break time' });
+  if (!targetRange) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid break time' });
 
   // Load off-person shift
   const offShift = (await DB.prepare(
@@ -48,7 +48,7 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(target.schedule_id, target.off_member_id)
     .first()) as any;
 
-  if (!offShift) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Shift not found for that member' });
+  if (!offShift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Shift not found for that member' });
 
   if (coverMemberId !== null) {
     const coverShift = (await DB.prepare(
@@ -60,14 +60,14 @@ export const POST: APIRoute = async ({ request }) => {
       .bind(target.schedule_id, coverMemberId)
       .first()) as any;
 
-    if (!coverShift) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cover member is not on the roster for this day' });
+    if (!coverShift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not on the roster for this day' });
 
     const status = (await DB.prepare('SELECT blocks_coverage FROM statuses WHERE key=?')
       .bind(coverShift.status_key)
       .first()) as any;
 
     if (status?.blocks_coverage === 1) {
-      return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cover member is not available (status blocks coverage)' });
+      return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not available (status blocks coverage)' });
     }
 
     const canWork = coverShift.all_areas === 1
@@ -79,7 +79,7 @@ export const POST: APIRoute = async ({ request }) => {
         );
 
     if (!canWork) {
-      return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cover member is not permitted to work that area' });
+      return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not permitted to work that area' });
     }
 
     // Cover cannot cover two people at the same time
@@ -96,7 +96,7 @@ export const POST: APIRoute = async ({ request }) => {
       const r = minutesRange(b.start_time, b.duration_minutes);
       if (!r) continue;
       if (overlap(targetRange.start, targetRange.end, r.start, r.end)) {
-        return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cover member already covering someone else during that time' });
+        return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member already covering someone else during that time' });
       }
     }
 
@@ -114,7 +114,7 @@ export const POST: APIRoute = async ({ request }) => {
       const r = minutesRange(b.start_time, b.duration_minutes);
       if (!r) continue;
       if (overlap(targetRange.start, targetRange.end, r.start, r.end)) {
-        return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cover member is on break during that time' });
+        return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is on break during that time' });
       }
     }
 
@@ -148,7 +148,7 @@ export const POST: APIRoute = async ({ request }) => {
       const msg = failing
         .map((r) => `${r.label} below minimum (${counts.get(r.area_key) ?? 0}/${r.min_staff})`)
         .join('; ');
-      return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: `Area staffing minimum would be violated: ${msg}` });
+      return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: `Area staffing minimum would be violated: ${msg}` });
     }
   }
 
@@ -156,5 +156,5 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(coverMemberId, breakId)
     .run();
 
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Cover updated' });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Cover updated' });
 };

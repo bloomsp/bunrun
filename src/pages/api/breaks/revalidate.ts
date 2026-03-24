@@ -10,9 +10,9 @@ export const POST: APIRoute = async ({ request }) => {
   const date = (form.get('date') || '').toString();
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
+    return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
   }
 
   // Revalidation is computed on page render; this just refreshes and shows a notice.
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Revalidated' });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Revalidated' });
 };

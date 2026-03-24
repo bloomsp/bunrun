@@ -11,11 +11,11 @@ export const POST: APIRoute = async ({ request }) => {
   const date = (form.get('date') || '').toString();
   const breakId = Number(form.get('breakId'));
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
-  if (!Number.isFinite(breakId) || breakId <= 0) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid break' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  if (!Number.isFinite(breakId) || breakId <= 0) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid break' });
 
   const DB = await getDB();
   await DB.prepare('DELETE FROM breaks WHERE id=?').bind(breakId).run();
 
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Break deleted' });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Break deleted' });
 };

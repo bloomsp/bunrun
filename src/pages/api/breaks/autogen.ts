@@ -13,8 +13,8 @@ export const POST: APIRoute = async ({ request }) => {
   const date = (form.get('date') || '').toString();
   const shiftId = Number(form.get('shiftId'));
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
-  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid shift' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid shift' });
 
   const DB = await getDB();
 
@@ -25,9 +25,9 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(shiftId)
     .first()) as any;
 
-  if (!shift) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Shift not found' });
+  if (!shift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Shift not found' });
   if (shift.status_key !== 'working') {
-    return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Cannot auto-generate breaks for non-working status' });
+    return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cannot auto-generate breaks for non-working status' });
   }
 
   // Clear existing breaks for this shift
@@ -158,8 +158,8 @@ export const POST: APIRoute = async ({ request }) => {
     .first()) as any;
 
   if (Number(after?.n ?? 0) > 0) {
-    return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Breaks generated (some missing cover)' });
+    return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Breaks generated (some missing cover)' });
   }
 
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Breaks generated' });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Breaks generated' });
 };

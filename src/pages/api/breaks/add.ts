@@ -15,11 +15,11 @@ export const POST: APIRoute = async ({ request }) => {
   const mm = Number(form.get('mm'));
   const duration = Number(form.get('duration'));
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid date' });
-  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid shift' });
-  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid hour' });
-  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid minutes' });
-  if (![15, 30, 45, 60].includes(duration)) return redirectWithMessage(`/admin/schedule/${date}#breaks`, { error: 'Invalid duration' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid shift' });
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid hour' });
+  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid minutes' });
+  if (![15, 30, 45, 60].includes(duration)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid duration' });
 
   const startTime = toHHMM(hh * 60 + mm);
 
@@ -28,5 +28,5 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(shiftId, startTime, duration)
     .run();
 
-  return redirectWithMessage(`/admin/schedule/${date}#breaks`, { notice: 'Break added' });
+  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: 'Break added' });
 };
