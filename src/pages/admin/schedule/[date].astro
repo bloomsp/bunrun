@@ -54,6 +54,15 @@ type WeekSummary = {
   working_count: number;
 };
 
+type ShiftView = ShiftRow & {
+  start_minutes: number;
+  end_minutes: number | null;
+  computed_minutes: number;
+  warnings: string[];
+  status_label: string;
+  area_label: string;
+};
+
 const DB = await getDB();
 
 // Ensure schedule exists
@@ -103,22 +112,71 @@ for (const p of perms) {
   permsByMember.set(p.member_id, set);
 }
 
-const workingShiftIds = new Set(shifts.filter((s) => s.status_key === 'working').map((s) => s.id));
-const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
-
-// Identify breaks with invalid cover assignments (overlap/area perms/status/min staff)
 const memberById = new Map(members.map((m) => [m.id, m]));
+const areaByKey = new Map(areas.map((a) => [a.key, a]));
+const statusByKey = new Map(statuses.map((s) => [s.key, s]));
+const shiftById = new Map(shifts.map((s) => [s.id, s]));
 const shiftByMember = new Map(shifts.map((s) => [s.member_id, s]));
 
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
+const workingShifts = shifts.filter((s) => s.status_key === 'working');
+const workingShiftIds = new Set(workingShifts.map((s) => s.id));
+const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
 
 // base working counts per area
 const baseCounts = new Map<string, number>();
 for (const a of areas) baseCounts.set(a.key, 0);
-for (const s of shifts) {
-  if (s.status_key === 'working') {
-    baseCounts.set(s.home_area_key, (baseCounts.get(s.home_area_key) ?? 0) + 1);
+for (const s of workingShifts) {
+  baseCounts.set(s.home_area_key, (baseCounts.get(s.home_area_key) ?? 0) + 1);
+}
+
+const shiftViews = shifts.map((s) => {
+  const startMinutes = parseHHMM(s.start_time) ?? 0;
+  const endMinutes = s.end_time ? parseHHMM(s.end_time) : null;
+  const computedMinutes = endMinutes != null ? endMinutes - startMinutes : s.shift_minutes;
+  return {
+    ...s,
+    start_minutes: startMinutes,
+    end_minutes: endMinutes,
+    computed_minutes: computedMinutes,
+    warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes) : [],
+    status_label: statusByKey.get(s.status_key)?.label ?? s.status_key,
+    area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key
+  } satisfies ShiftView;
+});
+const shiftViewById = new Map(shiftViews.map((s) => [s.id, s]));
+const shiftViewsByArea = new Map<string, ShiftView[]>();
+const workingShiftViewsByArea = new Map<string, ShiftView[]>();
+for (const shift of shiftViews) {
+  const allAreaShifts = shiftViewsByArea.get(shift.home_area_key) ?? [];
+  allAreaShifts.push(shift);
+  shiftViewsByArea.set(shift.home_area_key, allAreaShifts);
+
+  if (shift.status_key === 'working') {
+    const workingAreaShifts = workingShiftViewsByArea.get(shift.home_area_key) ?? [];
+    workingAreaShifts.push(shift);
+    workingShiftViewsByArea.set(shift.home_area_key, workingAreaShifts);
   }
+}
+const availableMembers = members.filter((m) => !assignedMemberIds.has(m.id));
+const breakRangeById = new Map<number, { start: number; end: number }>();
+for (const b of breaks) {
+  const parsed = rangeFor(b.start_time, b.duration_minutes);
+  if (parsed) breakRangeById.set(b.id, parsed);
+}
+const coveredBreaksByMember = new Map<number, BreakRow[]>();
+for (const b of breaks) {
+  if (b.cover_member_id == null) continue;
+  const arr = coveredBreaksByMember.get(b.cover_member_id) ?? [];
+  arr.push(b);
+  coveredBreaksByMember.set(b.cover_member_id, arr);
+}
+const plannedBreakMinutesByShift = new Map<number, number>();
+for (const [shiftId, rows] of breaksByShift.entries()) {
+  plannedBreakMinutesByShift.set(
+    shiftId,
+    rows.reduce((sum, row) => sum + row.duration_minutes, 0)
+  );
 }
 
 function canCoverArea(memberId: number, areaKey: string) {
@@ -131,13 +189,18 @@ function canCoverArea(memberId: number, areaKey: string) {
 }
 
 function coverOverlaps(memberId: number, target: { start: number; end: number }, breakId: number) {
-  for (const b of breaks) {
+  for (const b of coveredBreaksByMember.get(memberId) ?? []) {
     if (b.id === breakId) continue;
-    const r = rangeFor(b.start_time, b.duration_minutes);
-    if (!r) continue;
-    if (b.cover_member_id === memberId && overlap(target.start, target.end, r.start, r.end)) return true;
-    const offShift = shifts.find((s) => s.id === b.shift_id);
-    if (offShift?.member_id === memberId && overlap(target.start, target.end, r.start, r.end)) return true;
+    const r = breakRangeById.get(b.id);
+    if (r && overlap(target.start, target.end, r.start, r.end)) return true;
+  }
+
+  const ownShift = shiftByMember.get(memberId);
+  if (!ownShift) return false;
+  for (const b of breaksByShift.get(ownShift.id) ?? []) {
+    if (b.id === breakId) continue;
+    const r = breakRangeById.get(b.id);
+    if (r && overlap(target.start, target.end, r.start, r.end)) return true;
   }
   return false;
 }
@@ -173,7 +236,7 @@ for (const b of breaks) {
     continue;
   }
 
-  const offShift = shifts.find((s) => s.id === b.shift_id);
+  const offShift = shiftById.get(b.shift_id);
   const offAreaKey = offShift?.home_area_key;
   if (!offAreaKey) continue;
 
@@ -248,9 +311,9 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
 }
 
 function canWorkArea(memberId: number, areaKey: string) {
-  const shift = shifts.find((s) => s.member_id === memberId);
+  const shift = shiftByMember.get(memberId);
   if (!shift) return false;
-  const m = members.find((mm) => mm.id === memberId);
+  const m = memberById.get(memberId);
   if (!m) return false;
   if (m.all_areas === 1) return true;
   const set = permsByMember.get(memberId);
@@ -265,6 +328,35 @@ function rangeFor(start: string, duration: number) {
   const s = parseHHMM(start);
   if (s == null) return null;
   return { start: s, end: s + duration };
+}
+
+function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
+  const target = breakRangeById.get(targetBreak.id);
+  return workingShifts.filter((candidate) => {
+    if (candidate.member_id === offShift.member_id) return false;
+    if (!canWorkArea(candidate.member_id, offShift.home_area_key)) return false;
+    if (!target) return true;
+
+    for (const ownBreak of breaksByShift.get(candidate.id) ?? []) {
+      const ownRange = breakRangeById.get(ownBreak.id);
+      if (ownRange && overlap(target.start, target.end, ownRange.start, ownRange.end)) return false;
+    }
+
+    for (const coveredBreak of coveredBreaksByMember.get(candidate.member_id) ?? []) {
+      if (coveredBreak.id === targetBreak.id) continue;
+      const coveredRange = breakRangeById.get(coveredBreak.id);
+      if (coveredRange && overlap(target.start, target.end, coveredRange.start, coveredRange.end)) return false;
+    }
+
+    return true;
+  });
+}
+
+const coverCandidatesByBreakId = new Map<number, ShiftRow[]>();
+for (const shift of workingShifts) {
+  for (const b of breaksByShift.get(shift.id) ?? []) {
+    coverCandidatesByBreakId.set(b.id, coverCandidatesForBreak(shiftViewById.get(shift.id) ?? (shift as ShiftView), b));
+  }
 }
 ---
 
@@ -403,9 +495,7 @@ function rangeFor(start: string, duration: number) {
             data-bunrun-member
           >
             <option value="" selected>Select…</option>
-            {members
-              .filter((m) => !assignedMemberIds.has(m.id))
-              .map((m) => (
+            {availableMembers.map((m) => (
                 <option value={m.id} data-default-area={m.default_area_key ?? ''}>
                   {m.name}
                 </option>
@@ -490,12 +580,7 @@ function rangeFor(start: string, duration: number) {
             </tr>
           </thead>
           <tbody>
-            {shifts.map((s) => {
-              const endMin = minutesOrNull(s.end_time);
-              const startMin = parseHHMM(s.start_time) ?? 0;
-              const computed = endMin != null ? endMin - startMin : s.shift_minutes;
-              const warns = endMin != null ? warningsForShift(s.start_time, s.end_time!, computed) : [];
-              const statusLabel = statuses.find((st) => st.key === s.status_key)?.label ?? s.status_key;
+            {shiftViews.map((s) => {
               const isEditing = editShiftId === s.id;
 
               if (isEditing) {
@@ -555,20 +640,20 @@ function rangeFor(start: string, duration: number) {
               return (
                 <tr class="bg-slate-50">
                   <td class="px-3 py-3 font-medium">{s.name}</td>
-                  <td class="px-3 py-3">{areas.find((a) => a.key === s.home_area_key)?.label ?? s.home_area_key}</td>
+                  <td class="px-3 py-3">{s.area_label}</td>
                   <td class="px-3 py-3">
                     {s.status_key === 'sick' ? (
                       <span class="rounded bg-rose-100 px-2 py-1 font-medium text-rose-900">Sick</span>
                     ) : (
-                      statusLabel
+                      s.status_label
                     )}
                   </td>
                   <td class="px-3 py-3">{s.start_time}</td>
                   <td class="px-3 py-3">{s.end_time ?? '—'}</td>
-                  <td class="px-3 py-3">{formatDurationMinutes(computed)}</td>
+                  <td class="px-3 py-3">{formatDurationMinutes(s.computed_minutes)}</td>
                   <td class="px-3 py-3">
-                    {warns.length ? (
-                      <span class="rounded bg-amber-100 px-2 py-1 text-amber-900">{warns.join(' · ')}</span>
+                    {s.warnings.length ? (
+                      <span class="rounded bg-amber-100 px-2 py-1 text-amber-900">{s.warnings.join(' · ')}</span>
                     ) : (
                       <span class="text-slate-500">—</span>
                     )}
@@ -639,9 +724,7 @@ function rangeFor(start: string, duration: number) {
 
       <div class="mt-6 space-y-8">
         {areas.map((area) => {
-          const areaShifts = shifts
-            .filter((s) => s.status_key === 'working')
-            .filter((s) => s.home_area_key === area.key);
+          const areaShifts = workingShiftViewsByArea.get(area.key) ?? [];
 
           if (areaShifts.length === 0) return null;
 
@@ -650,12 +733,9 @@ function rangeFor(start: string, duration: number) {
               <div class="text-sm font-semibold text-slate-700">{area.label}</div>
 
               {areaShifts.map((s) => {
-                const endMin = minutesOrNull(s.end_time);
-                const startMin = parseHHMM(s.start_time) ?? 0;
-                const shiftMinutes = endMin != null ? endMin - startMin : s.shift_minutes;
-                const allowance = breakAllowanceMinutes(shiftMinutes);
+                const allowance = breakAllowanceMinutes(s.computed_minutes);
                 const rows = breaksByShift.get(s.id) ?? [];
-                const used = rows.reduce((sum, r) => sum + r.duration_minutes, 0);
+                const used = plannedBreakMinutesByShift.get(s.id) ?? 0;
 
                 return (
                   <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -670,7 +750,7 @@ function rangeFor(start: string, duration: number) {
                       <div>
                         <div class="font-semibold">{s.name}</div>
                         <div class="text-sm text-slate-600">
-                          {s.start_time}–{s.end_time ?? '—'} · shift {formatDurationMinutes(shiftMinutes)} · allowance {allowance}m · planned {used}m
+                          {s.start_time}–{s.end_time ?? '—'} · shift {formatDurationMinutes(s.computed_minutes)} · allowance {allowance}m · planned {used}m
                         </div>
                       </div>
                     </div>
@@ -709,30 +789,7 @@ function rangeFor(start: string, duration: number) {
                                   <input type="hidden" name="breakId" value={b.id} />
                                   <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
                                     <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
-                                    {shifts
-                                      .filter((cs) => cs.member_id !== s.member_id)
-                                      .filter((cs) => cs.status_key === 'working')
-                                      .filter((cs) => canWorkArea(cs.member_id, s.home_area_key))
-                                      .filter((cs) => {
-                                        const target = rangeFor(b.start_time, b.duration_minutes);
-                                        if (!target) return true;
-
-                                        const own = breaksByShift.get(cs.id) ?? [];
-                                        for (const ob of own) {
-                                          const r = rangeFor(ob.start_time, ob.duration_minutes);
-                                          if (r && overlap(target.start, target.end, r.start, r.end)) return false;
-                                        }
-
-                                        for (const cb of breaks) {
-                                          if (cb.cover_member_id !== cs.member_id) continue;
-                                          if (cb.id === b.id) continue;
-                                          const r = rangeFor(cb.start_time, cb.duration_minutes);
-                                          if (r && overlap(target.start, target.end, r.start, r.end)) return false;
-                                        }
-
-                                        return true;
-                                      })
-                                      .map((cs) => (
+                                    {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
                                         <option value={cs.member_id} selected={b.cover_member_id === cs.member_id}>
                                           {cs.name}
                                         </option>
