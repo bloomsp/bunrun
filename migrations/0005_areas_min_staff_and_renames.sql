@@ -4,7 +4,7 @@ PRAGMA foreign_keys=ON;
 ALTER TABLE areas ADD COLUMN min_staff INTEGER NOT NULL DEFAULT 0;
 
 -- Rename labels
-UPDATE areas SET label='Front Greeter' WHERE key='front-door';
+UPDATE areas SET label='Door' WHERE key='front-door';
 UPDATE areas SET label='Nursery Greeter' WHERE key='greeters';
 
 -- Set minimum staffing

@@ -69,7 +69,7 @@ INSERT OR IGNORE INTO areas (key, label) VALUES
   ('nursery', 'Nursery'),
   ('cafe', 'Cafe'),
   ('car-park', 'Car Park'),
-  ('front-door', 'Front Door'),
+  ('front-door', 'Door'),
   ('greeters', 'Greeters');
 
 -- Seed statuses

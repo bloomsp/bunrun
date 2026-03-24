@@ -72,6 +72,8 @@ function breakMarker(duration: number) {
       --runsheet-name-col: 220px;
       --runsheet-slot-width: 42px;
       --runsheet-row-height: 42px;
+      --runsheet-header-height: 40px;
+      --runsheet-marker-width: 14px;
       --runsheet-grid-width: calc(var(--runsheet-slot-count) * var(--runsheet-slot-width));
     }
 
@@ -90,6 +92,8 @@ function breakMarker(duration: number) {
         --runsheet-name-col: 136px;
         --runsheet-slot-width: 24px;
         --runsheet-row-height: 34px;
+        --runsheet-header-height: 34px;
+        --runsheet-marker-width: 12px;
       }
 
       .runsheet-shell {
@@ -102,9 +106,6 @@ function breakMarker(duration: number) {
       }
 
       .runsheet-time-label {
-        padding-left: 0.2rem;
-        padding-right: 0.2rem;
-        padding-top: 0.35rem;
         font-size: 9px;
       }
 
@@ -123,8 +124,6 @@ function breakMarker(duration: number) {
       }
 
       .runsheet-break-marker {
-        top: 3px;
-        height: 24px;
         font-size: 9px;
         line-height: 9px;
       }
@@ -145,9 +144,9 @@ function breakMarker(duration: number) {
       <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
         <div class="border-b border-slate-200 bg-white">
-          <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: 40px;`}>
+          <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
             {slots.map((s) => (
-              <div class="runsheet-time-label border-l border-slate-200 px-2 pt-2 text-[12px] text-slate-600">
+              <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
                 {s.label}
               </div>
             ))}
@@ -168,9 +167,9 @@ function breakMarker(duration: number) {
                 {a.label}
               </div>
               <div class="bg-slate-50">
-                <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: 40px;`}>
+                <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
                   {slots.map((s) => (
-                    <div class="runsheet-time-label border-l border-slate-200 px-2 pt-2 text-[12px] text-slate-600">
+                    <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
                       {s.label}
                     </div>
                   ))}
@@ -224,8 +223,8 @@ function breakMarker(duration: number) {
                         if (bm == null) return null;
                         return (
                           <div
-                            class="runsheet-break-marker absolute top-[7px] grid place-items-center text-[10px] font-black leading-[10px] text-slate-900"
-                            style={`left: calc(${leftSlots(bm)} * var(--runsheet-slot-width) - 6px); width:12px; height:28px;`}
+                            class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
+                            style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
                             title={`Break ${b.start_time} (${b.duration_minutes}m)`}
                           >
                             {breakMarker(b.duration_minutes)}
