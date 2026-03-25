@@ -93,6 +93,20 @@ export const POST: APIRoute = async ({ request }) => {
   };
 
   let generated = 0;
+  const workingShiftsByArea = new Map<string, ShiftRow[]>();
+  for (const shift of shifts) {
+    if (shift.status_key !== 'working') continue;
+    const rows = workingShiftsByArea.get(shift.home_area_key) ?? [];
+    rows.push(shift);
+    workingShiftsByArea.set(shift.home_area_key, rows);
+  }
+  for (const rows of workingShiftsByArea.values()) {
+    rows.sort((a, b) =>
+      a.start_time.localeCompare(b.start_time) ||
+      (a.end_time ?? '').localeCompare(b.end_time ?? '') ||
+      a.member_id - b.member_id
+    );
+  }
 
   for (const shift of shifts) {
     // Generate for working/training/crc/stocking, but not sick
@@ -110,7 +124,10 @@ export const POST: APIRoute = async ({ request }) => {
 
     const shiftMinutes = computeShiftMinutes(shift);
     const durations = generateBreakTemplate(shiftMinutes);
-    const proposed = proposeBreakTimes(shift, durations);
+    const areaPeers = workingShiftsByArea.get(shift.home_area_key) ?? [];
+    const shiftIndexInArea = Math.max(0, areaPeers.findIndex((row) => row.id === shift.id));
+    const staggerOffset = (shiftIndexInArea % 4) * 15;
+    const proposed = proposeBreakTimes(shift, durations, { offsetMinutes: staggerOffset });
 
     for (const b of proposed) {
       const offRange = rangeFor({ shift_id: shift.id, ...b, cover_member_id: null });

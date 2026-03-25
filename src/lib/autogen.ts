@@ -39,7 +39,11 @@ export function generateBreakTemplate(shiftMinutes: number): number[] {
   return [allowance];
 }
 
-export function proposeBreakTimes(shift: ShiftLike, durations: number[]): { start_time: string; duration_minutes: number }[] {
+export function proposeBreakTimes(
+  shift: ShiftLike,
+  durations: number[],
+  opts?: { offsetMinutes?: number }
+): { start_time: string; duration_minutes: number }[] {
   const startMin = parseHHMM(shift.start_time);
   const endMin = shift.end_time ? parseHHMM(shift.end_time) : null;
   if (startMin == null || endMin == null) return [];
@@ -47,7 +51,7 @@ export function proposeBreakTimes(shift: ShiftLike, durations: number[]): { star
   // Simple cadence: first break around +2h30, subsequent breaks around +2h30 after previous break start.
   const cadence = 150; // minutes
   const out: { start_time: string; duration_minutes: number }[] = [];
-  let cursor = startMin + cadence;
+  let cursor = startMin + cadence + (opts?.offsetMinutes ?? 0);
 
   for (const dur of durations) {
     // Clamp to fit inside shift

@@ -34,10 +34,6 @@ export const POST: APIRoute = async ({ request }) => {
   // Clear existing breaks for this shift
   await DB.prepare('DELETE FROM breaks WHERE shift_id=?').bind(shiftId).run();
 
-  const shiftMinutes = computeShiftMinutes(shift);
-  const durations = generateBreakTemplate(shiftMinutes);
-  const proposed = proposeBreakTimes(shift, durations);
-
   // Preload context for cover picking
   const shifts = (await DB.prepare(
     `SELECT id, member_id, home_area_key, status_key, start_time, end_time
@@ -59,6 +55,18 @@ export const POST: APIRoute = async ({ request }) => {
 
   const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas').all()).results as any[];
   const minByArea = new Map<string, number>(areas.map((a) => [a.key, Number(a.min_staff ?? 0)]));
+  const areaPeers = shifts
+    .filter((s: any) => s.status_key === 'working' && s.home_area_key === shift.home_area_key)
+    .sort((a: any, b: any) =>
+      a.start_time.localeCompare(b.start_time) ||
+      (a.end_time ?? '').localeCompare(b.end_time ?? '') ||
+      a.member_id - b.member_id
+    );
+  const shiftIndexInArea = Math.max(0, areaPeers.findIndex((s: any) => s.id === shift.id));
+  const staggerOffset = (shiftIndexInArea % 4) * 15;
+  const shiftMinutes = computeShiftMinutes(shift);
+  const durations = generateBreakTemplate(shiftMinutes);
+  const proposed = proposeBreakTimes(shift, durations, { offsetMinutes: staggerOffset });
 
   // Helper: can member work covered area
   const canWork = (memberId: number, areaKey: string) => {
