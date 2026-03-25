@@ -126,13 +126,10 @@ export const POST: APIRoute = async ({ request }) => {
 
     const counts = countWorkingShiftsByAreaInRange(shifts, targetRange);
 
-    // Off-person leaves their area
-    counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) - 1);
-
-    // Cover person leaves their own area if different, and moves to covered area
+    // A same-area cover keeps staffing unchanged. A cross-area cover only reduces the
+    // cover member's original area because they move into the covered area.
     if (coverShift.home_area_key !== target.home_area_key) {
       counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
-      counts.set(target.home_area_key, (counts.get(target.home_area_key) ?? 0) + 1);
     }
 
     const failing = areas.filter((r) => (counts.get(r.area_key) ?? 0) < Number(r.min_staff));

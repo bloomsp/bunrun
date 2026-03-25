@@ -143,10 +143,10 @@ export const POST: APIRoute = async ({ request }) => {
 
         // area min check
         const counts = countWorkingShiftsByAreaInRange(allShifts, offRange);
-        counts.set(shift.home_area_key, (counts.get(shift.home_area_key) ?? 0) - 1);
+        // A same-area cover keeps staffing unchanged. A cross-area cover only reduces the
+        // cover member's original area because they move into the covered area.
         if (c.home_area_key !== shift.home_area_key) {
           counts.set(c.home_area_key, (counts.get(c.home_area_key) ?? 0) - 1);
-          counts.set(shift.home_area_key, (counts.get(shift.home_area_key) ?? 0) + 1);
         }
 
         let ok = true;

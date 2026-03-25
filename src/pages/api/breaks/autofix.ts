@@ -92,11 +92,10 @@ export const POST: APIRoute = async ({ request }) => {
 
   function violatesAreaMins(offAreaKey: string, coverAreaKey: string, target: { start: number; end: number }) {
     const counts = countWorkingShiftsByAreaInRange(shifts, target);
-    // off-person leaves their area
-    counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) - 1);
+    // A same-area cover keeps staffing unchanged. A cross-area cover only reduces the
+    // cover member's original area because they move into the covered area.
     if (coverAreaKey !== offAreaKey) {
       counts.set(coverAreaKey, (counts.get(coverAreaKey) ?? 0) - 1);
-      counts.set(offAreaKey, (counts.get(offAreaKey) ?? 0) + 1);
     }
     for (const [areaKey, min] of minByArea.entries()) {
       if ((counts.get(areaKey) ?? 0) < min) return true;
