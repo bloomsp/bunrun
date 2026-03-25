@@ -64,7 +64,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (!coverShift) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Cover member is not on the roster for this day' });
 
-    const canWork = coverShift.all_areas === 1
+    const canWork = coverShift.home_area_key === target.home_area_key || coverShift.all_areas === 1
       ? true
       : Boolean(
           (await DB.prepare('SELECT 1 FROM member_area_permissions WHERE member_id=? AND area_key=?')

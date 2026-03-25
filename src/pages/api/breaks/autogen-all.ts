@@ -122,7 +122,7 @@ export const POST: APIRoute = async ({ request }) => {
         .filter((s: any) => s.status_key === 'working')
         .filter((s: any) => s.member_id !== shift.member_id)
         .filter((s: any) => firstActiveShiftInRange(allShifts.filter((x: any) => x.member_id === s.member_id), offRange, { workingOnly: true })?.id === s.id)
-        .filter((s: any) => canWork(s.member_id, shift.home_area_key));
+        .filter((s: any) => s.home_area_key === shift.home_area_key || canWork(s.member_id, shift.home_area_key));
 
       let picked: any = null;
 

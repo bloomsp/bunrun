@@ -129,7 +129,7 @@ export const POST: APIRoute = async ({ request }) => {
     const coverShift = activeShift(coverId, target);
     if (!coverShift) return false;
     if (isBlockedByStatus(coverId)) return false;
-    if (!canWork(coverId, b.off_area_key)) return false;
+    if (coverShift.home_area_key !== b.off_area_key && !canWork(coverId, b.off_area_key)) return false;
 
     if (hasOverlapForCover(coverId, target, b.id)) return false;
 
@@ -146,7 +146,7 @@ export const POST: APIRoute = async ({ request }) => {
       if (s.status_key !== 'working') continue;
       if (s.member_id === b.off_member_id) continue;
       if (activeShift(s.member_id, target)?.id !== s.id) continue;
-      if (!canWork(s.member_id, b.off_area_key)) continue;
+      if (s.home_area_key !== b.off_area_key && !canWork(s.member_id, b.off_area_key)) continue;
       if (hasOverlapForCover(s.member_id, target, b.id)) continue;
       if (violatesAreaMins(b.off_area_key, s.home_area_key, target)) continue;
       return s.member_id;

@@ -249,7 +249,7 @@ if (showBreakPlanning) {
     const offAreaKey = offShift?.home_area_key;
     if (!offAreaKey) continue;
 
-    if (!canCoverArea(coverId, offAreaKey)) {
+    if (coverShift.home_area_key !== offAreaKey && !canCoverArea(coverId, offAreaKey)) {
       invalidCoverBreaks.push({ id: b.id, reason: 'Cover not permitted for area' });
       continue;
     }
@@ -337,7 +337,7 @@ function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
     if (candidate.member_id === offShift.member_id) return false;
     if (!target) return false;
     if (candidate.id !== activeShiftForMember(candidate.member_id, target, { workingOnly: true })?.id) return false;
-    if (!canWorkArea(candidate.member_id, offShift.home_area_key)) return false;
+    if (candidate.home_area_key !== offShift.home_area_key && !canWorkArea(candidate.member_id, offShift.home_area_key)) return false;
 
     for (const ownBreak of breaksByShift.get(candidate.id) ?? []) {
       const ownRange = breakRangeById.get(ownBreak.id);
