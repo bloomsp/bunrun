@@ -68,7 +68,9 @@ export function proposeBreakTimes(
 export function rangeFor(b: { start_time: string; duration_minutes: number }): { start: number; end: number } | null {
   const s = parseHHMM(b.start_time);
   if (s == null) return null;
-  return { start: s, end: s + b.duration_minutes };
+  const duration = Number(b.duration_minutes);
+  if (!Number.isFinite(duration)) return null;
+  return { start: s, end: s + duration };
 }
 
 export function breaksOverlap(a: { start_time: string; duration_minutes: number }, b: { start_time: string; duration_minutes: number }) {

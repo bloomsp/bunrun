@@ -15,5 +15,7 @@ export function overlap(aStart: number, aEnd: number, bStart: number, bEnd: numb
 export function minutesRange(startHHMM: string, durationMinutes: number): { start: number; end: number } | null {
   const s = parseHHMM(startHHMM);
   if (s == null) return null;
-  return { start: s, end: s + durationMinutes };
+  const duration = Number(durationMinutes);
+  if (!Number.isFinite(duration)) return null;
+  return { start: s, end: s + duration };
 }

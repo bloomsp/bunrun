@@ -184,7 +184,7 @@ const plannedBreakMinutesByShift = new Map<number, number>();
 for (const [shiftId, rows] of breaksByShift.entries()) {
   plannedBreakMinutesByShift.set(
     shiftId,
-    rows.reduce((sum, row) => sum + row.duration_minutes, 0)
+    rows.reduce((sum, row) => sum + Number(row.duration_minutes), 0)
   );
 }
 
@@ -328,7 +328,9 @@ function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
 function rangeFor(start: string, duration: number) {
   const s = parseHHMM(start);
   if (s == null) return null;
-  return { start: s, end: s + duration };
+  const minutes = Number(duration);
+  if (!Number.isFinite(minutes)) return null;
+  return { start: s, end: s + minutes };
 }
 
 function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {

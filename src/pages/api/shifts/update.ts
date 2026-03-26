@@ -82,7 +82,7 @@ export const POST: APIRoute = async ({ request }) => {
       for (const assignment of coverAssignments) {
         const start = parseHHMM(assignment.start_time);
         if (start == null) continue;
-        const end = start + assignment.duration_minutes;
+        const end = start + Number(assignment.duration_minutes);
         if (start < sickRange.end && sickRange.start < end) {
           await DB.prepare('UPDATE breaks SET cover_member_id=NULL WHERE id=?').bind(assignment.id).run();
         }
