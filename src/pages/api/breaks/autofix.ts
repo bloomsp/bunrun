@@ -31,11 +31,12 @@ export const POST: APIRoute = async ({ request }) => {
 
   const form = await request.formData();
   const date = (form.get('date') || '').toString();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Invalid date' });
+  const returnTo = (form.get('returnTo') || `/admin/schedule/${date}?panel=breaks#breaks`).toString();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(returnTo, { error: 'Invalid date' });
 
   const DB = await getDB();
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
-  if (!sched) return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { error: 'Schedule not found' });
+  if (!sched) return redirectWithMessage(returnTo, { error: 'Schedule not found' });
   const scheduleId = sched.id as number;
 
   const shifts = (await DB.prepare(
@@ -186,5 +187,5 @@ export const POST: APIRoute = async ({ request }) => {
     ? `Auto-fix complete: ${fixed} cover(s) assigned, ${stillMissing} still missing.`
     : `Auto-fix complete: ${fixed} cover(s) assigned.`;
 
-  return redirectWithMessage(`/admin/schedule/${date}?panel=breaks#breaks`, { notice: msg });
+  return redirectWithMessage(returnTo, { notice: msg });
 };
