@@ -183,7 +183,14 @@ for (const shift of shiftViews) {
     workingShiftViewsByArea.set(shift.home_area_key, workingAreaShifts);
   }
 }
-const breakPlanningAreas = areas.filter((area) => (workingShiftViewsByArea.get(area.key)?.length ?? 0) > 0);
+const breakAreaKeysFromBreaks = new Set(
+  breaks
+    .map((breakRow) => shiftById.get(breakRow.shift_id)?.home_area_key)
+    .filter((areaKey): areaKey is string => Boolean(areaKey))
+);
+const breakPlanningAreas = areas.filter((area) =>
+  (workingShiftViewsByArea.get(area.key)?.length ?? 0) > 0 || breakAreaKeysFromBreaks.has(area.key)
+);
 const requestedBreakAreaKey = Astro.url.searchParams.get('area') ?? '';
 const selectedBreakAreaKey = showBreakPlanning
   ? (breakPlanningAreas.some((area) => area.key === requestedBreakAreaKey)
@@ -736,6 +743,11 @@ if (showBreakPlanning) {
 
       {showBreakPlanning && (
         <>
+          {breakPlanningAreas.length === 0 && (
+            <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              No working shifts are currently available for break planning on this day. If this looks wrong, the roster may have been left in a partial state by an interrupted request.
+            </div>
+          )}
           <div class="mt-4 flex flex-wrap gap-2">
             <form method="post" action="/api/breaks/autogen-all">
               <input type="hidden" name="date" value={date} />
@@ -776,8 +788,15 @@ if (showBreakPlanning) {
               .filter((area) => area.key === selectedBreakAreaKey)
               .map((area) => {
                 const areaShifts = workingShiftViewsByArea.get(area.key) ?? [];
+                const areaBreakCount = breaks.filter((breakRow) => shiftById.get(breakRow.shift_id)?.home_area_key === area.key).length;
 
-                if (areaShifts.length === 0) return null;
+                if (areaShifts.length === 0) {
+                  return (
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      {area.label} has {areaBreakCount} planned break{areaBreakCount === 1 ? '' : 's'}, but no working shifts are currently attached to this area. This usually means a previous break-planning request was interrupted before the roster data and break data finished updating.
+                    </div>
+                  );
+                }
 
                 return (
                   <div class="space-y-3">

@@ -46,14 +46,6 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(scheduleId)
     .all()).results as ShiftRow[];
 
-  if (mode === 'overwrite') {
-    await DB.prepare(
-      `DELETE FROM breaks WHERE shift_id IN (SELECT id FROM shifts WHERE schedule_id=? AND status_key <> 'sick')`
-    )
-      .bind(scheduleId)
-      .run();
-  }
-
   const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as any[];
   const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
   const areas = (await DB.prepare('SELECT key, min_staff FROM areas').all()).results as any[];
@@ -94,6 +86,13 @@ export const POST: APIRoute = async ({ request }) => {
     )
       .bind(scheduleId)
       .all()).results as PlannerBreak[]);
+  const statements = mode === 'overwrite'
+    ? [
+        DB.prepare(
+          `DELETE FROM breaks WHERE shift_id IN (SELECT id FROM shifts WHERE schedule_id=? AND status_key <> 'sick')`
+        ).bind(scheduleId)
+      ]
+    : [];
 
   let generated = 0;
   const workingShiftsByArea = new Map<string, ShiftRow[]>();
@@ -143,13 +142,18 @@ export const POST: APIRoute = async ({ request }) => {
     const assignments = assignBestCovers(planner, plannedBreaks, pendingBreaks);
     for (const row of pendingBreaks) {
       const coverMemberId = assignments.get(row.id) ?? null;
-      await DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
-        .bind(shift.id, row.start_time, row.duration_minutes, coverMemberId)
-        .run();
+      statements.push(
+        DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
+          .bind(shift.id, row.start_time, row.duration_minutes, coverMemberId)
+      );
       plannedBreaks.push({ ...row, cover_member_id: coverMemberId });
     }
 
     generated++;
+  }
+
+  if (statements.length > 0) {
+    await DB.batch(statements);
   }
 
   const missingCount = plannedBreaks.filter((row) => {

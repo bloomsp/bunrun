@@ -104,14 +104,18 @@ export const POST: APIRoute = async ({ request }) => {
 
   const assignments = assignBestCovers(planner, existingBreaks, pendingBreaks);
   let missingCount = 0;
+  const statements = [DB.prepare('DELETE FROM breaks WHERE shift_id=?').bind(shiftId)];
 
   for (const row of pendingBreaks) {
     const coverMemberId = assignments.get(row.id) ?? null;
     if (coverMemberId == null) missingCount += 1;
-    await DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
-      .bind(shiftId, row.start_time, row.duration_minutes, coverMemberId)
-      .run();
+    statements.push(
+      DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
+        .bind(shiftId, row.start_time, row.duration_minutes, coverMemberId)
+    );
   }
+
+  await DB.batch(statements);
 
   if (missingCount > 0) {
     return redirectWithMessage(returnTo, { notice: 'Breaks generated (some missing cover)' });
