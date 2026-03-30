@@ -89,6 +89,10 @@ function overlapsHour(start: number, end: number, hourStart: number) {
   return start < hourEnd && hourStart < end;
 }
 
+function isHourSlot(mins: number) {
+  return mins % 60 === 0;
+}
+
 function formatShiftLength(startTime: string, endTime: string | null) {
   const start = parseHHMM(startTime);
   const end = endTime ? parseHHMM(endTime) : null;
@@ -253,7 +257,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   <style>
     .runsheet {
       --runsheet-name-col: 160px;
-      --runsheet-slot-width: 18px;
+      --runsheet-slot-width: 24px;
       --runsheet-row-height: 40px;
       --runsheet-header-height: 40px;
       --runsheet-marker-width: 12px;
@@ -263,6 +267,15 @@ function formatShiftLength(startTime: string, endTime: string | null) {
     .runsheet-area {
       break-inside: avoid-page;
       page-break-inside: avoid;
+    }
+
+    .runsheet-shell {
+      width: 100%;
+    }
+
+    .runsheet-time-label.is-hour {
+      font-weight: 600;
+      color: #334155;
     }
 
     @page {
@@ -279,11 +292,10 @@ function formatShiftLength(startTime: string, endTime: string | null) {
         --runsheet-marker-width: 12px;
       }
 
-    .runsheet-shell {
-      width: 100%;
-      overflow: visible !important;
-      border-radius: 0.5rem;
-    }
+      .runsheet-shell {
+        overflow: visible !important;
+        border-radius: 0.5rem;
+      }
 
       .runsheet-summary {
         font-size: 10px;
@@ -330,8 +342,8 @@ function formatShiftLength(startTime: string, endTime: string | null) {
         <div class="border-b border-slate-200 bg-white">
           <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
             {slots.map((s) => (
-              <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
-                {s.label}
+              <div class:list={['runsheet-time-label grid place-items-center border-l border-slate-200 px-1 text-center text-[11px] text-slate-500', isHourSlot(s.t) && 'is-hour']}>
+                {isHourSlot(s.t) ? s.label : ''}
               </div>
             ))}
           </div>
@@ -350,15 +362,15 @@ function formatShiftLength(startTime: string, endTime: string | null) {
               <div class="runsheet-area-label sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
                 {a.label}
               </div>
-              <div class="bg-slate-50">
-                <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
-                  {slots.map((s) => (
-                    <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
-                      {s.label}
-                    </div>
-                  ))}
+                <div class="bg-slate-50">
+                  <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
+                    {slots.map((s) => (
+                      <div class:list={['runsheet-time-label grid place-items-center border-l border-slate-200 px-1 text-center text-[11px] text-slate-500', isHourSlot(s.t) && 'is-hour']}>
+                        {isHourSlot(s.t) ? s.label : ''}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
             </div>
 
             {areaShifts.map((s) => {
