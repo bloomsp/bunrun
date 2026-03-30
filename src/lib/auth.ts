@@ -26,7 +26,13 @@ export function requireRole(request: Request, role: AuthRole): { ok: true } | { 
     return { ok: false, redirect: new Response(null, { status: 303, headers: { Location: to } }) };
   }
   if (role === 'admin' && current !== 'admin') {
-    return { ok: false, redirect: new Response('Forbidden', { status: 403 }) };
+    return {
+      ok: false,
+      redirect: new Response(null, {
+        status: 303,
+        headers: { Location: '/login/admin?error=Please+sign+in+with+the+admin+password' }
+      })
+    };
   }
   return { ok: true };
 }
