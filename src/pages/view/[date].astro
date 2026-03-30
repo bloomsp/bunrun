@@ -39,12 +39,9 @@ const breaks = (await DB.prepare(
 ---
 
 <Layout title={`Runsheet ${date} | Bunrun`}>
-  <div class="mx-auto max-w-6xl px-4 py-10">
+  <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold tracking-tight">Read-only runsheet</h1>
-      <form method="post" action="/api/logout">
-        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">Log out</button>
-      </form>
     </div>
 
     <div class="mt-4 flex items-center justify-between gap-3">

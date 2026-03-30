@@ -332,7 +332,7 @@ if (showBreakPlanning) {
 
 <Layout title={`Schedule ${date} | Bunrun`}>
   <script src="/js/schedule-time.js?v=4" defer></script>
-  <div class="mx-auto max-w-5xl px-4 py-10">
+  <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Schedule</h1>
@@ -340,14 +340,13 @@ if (showBreakPlanning) {
         <div class="mt-1 text-sm text-slate-500">Week of {weekStart}</div>
       </div>
       <div class="flex flex-wrap items-center gap-3">
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin/schedule">Change date</a>
         <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${previousWeekDate}`}>
           Previous week
         </a>
         <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${nextWeekDate}`}>
           Next week
         </a>
-        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin/schedule">Change date</a>
-        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/admin">Admin</a>
       </div>
     </div>
 

@@ -88,6 +88,18 @@ function overlapsHour(start: number, end: number, hourStart: number) {
   const hourEnd = hourStart + 60;
   return start < hourEnd && hourStart < end;
 }
+
+function formatShiftLength(startTime: string, endTime: string | null) {
+  const start = parseHHMM(startTime);
+  const end = endTime ? parseHHMM(endTime) : null;
+  if (start == null || end == null || end <= start) return null;
+  const duration = end - start;
+  const hours = Math.floor(duration / 60);
+  const minutes = duration % 60;
+  if (minutes === 0) return `${hours}h`;
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+}
 ---
 
 {variant === 'print' ? (
@@ -205,7 +217,9 @@ function overlapsHour(start: number, end: number, hourStart: number) {
                 <>
                   <div class="runsheet-print-cell runsheet-print-sticky">{area.label}</div>
                   <div class="runsheet-print-cell runsheet-print-sticky">{shift.name}</div>
-                  <div class="runsheet-print-cell runsheet-print-sticky">{shift.start_time}–{shift.end_time ?? '—'}</div>
+                  <div class="runsheet-print-cell runsheet-print-sticky">
+                    {shift.start_time}–{shift.end_time ?? '—'}{formatShiftLength(shift.start_time, shift.end_time) ? ` (${formatShiftLength(shift.start_time, shift.end_time)})` : ''}
+                  </div>
                   <div class="runsheet-print-cell runsheet-print-hours">
                     <div class="runsheet-print-hours-grid">
                       {printHours.map((hour) => (
@@ -238,11 +252,11 @@ function overlapsHour(start: number, end: number, hourStart: number) {
 <section class="runsheet mt-6" style={`--runsheet-slot-count:${slots.length};`}>
   <style>
     .runsheet {
-      --runsheet-name-col: 220px;
-      --runsheet-slot-width: 42px;
-      --runsheet-row-height: 42px;
+      --runsheet-name-col: 160px;
+      --runsheet-slot-width: 18px;
+      --runsheet-row-height: 40px;
       --runsheet-header-height: 40px;
-      --runsheet-marker-width: 14px;
+      --runsheet-marker-width: 12px;
       --runsheet-grid-width: calc(var(--runsheet-slot-count) * var(--runsheet-slot-width));
     }
 
@@ -265,10 +279,11 @@ function overlapsHour(start: number, end: number, hourStart: number) {
         --runsheet-marker-width: 12px;
       }
 
-      .runsheet-shell {
-        overflow: visible !important;
-        border-radius: 0.5rem;
-      }
+    .runsheet-shell {
+      width: 100%;
+      overflow: visible !important;
+      border-radius: 0.5rem;
+    }
 
       .runsheet-summary {
         font-size: 10px;
@@ -309,7 +324,7 @@ function overlapsHour(start: number, end: number, hourStart: number) {
   </div>
 
   <div class="runsheet-shell mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-    <div class="min-w-[1100px] print:min-w-0">
+    <div class="print:min-w-0" style="min-width: calc(var(--runsheet-name-col) + var(--runsheet-grid-width));">
       <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
         <div class="border-b border-slate-200 bg-white">
@@ -361,7 +376,9 @@ function overlapsHour(start: number, end: number, hourStart: number) {
                       </span>
                       {s.status_key === 'sick' && <span class="rounded bg-rose-100 px-2 py-0.5 text-xs text-rose-900">Sick</span>}
                     </div>
-                    <div class="mt-0.5 text-xs text-slate-600">{s.start_time}–{s.end_time ?? '—'}</div>
+                    <div class="mt-0.5 text-xs text-slate-600">
+                      {s.start_time}–{s.end_time ?? '—'}{formatShiftLength(s.start_time, s.end_time) ? ` · ${formatShiftLength(s.start_time, s.end_time)}` : ''}
+                    </div>
                   </div>
 
                   <div
