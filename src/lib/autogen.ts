@@ -1,5 +1,6 @@
 import { breakAllowanceMinutes, overlap } from './breaks';
 import { parseHHMM, toHHMM } from './time';
+import type { BreakPreference } from './member-config';
 
 export type ShiftLike = {
   id: number;
@@ -29,37 +30,78 @@ export function computeShiftMinutes(shift: ShiftLike): number {
   return endMin != null ? endMin - startMin : shift.shift_minutes;
 }
 
-export function generateBreakTemplate(shiftMinutes: number): number[] {
-  const allowance = breakAllowanceMinutes(shiftMinutes);
-  if (allowance <= 15) return [15];
-  if (allowance === 45) return [30, 15];
-  // 60m default (A): 30 + 15 + 15
-  if (allowance === 60) return [30, 15, 15];
-  // fallback
-  return [allowance];
+export function generateBreakTemplate(shiftMinutes: number, preference: BreakPreference = '15+30'): number[] {
+  let template: number[];
+  if (shiftMinutes < 4 * 60) {
+    template = [];
+  } else if (shiftMinutes <= 5 * 60) {
+    template = [15];
+  } else if (shiftMinutes < 7 * 60) {
+    template = [15, 30];
+  } else if (shiftMinutes < 10 * 60) {
+    template = [15, 30, 15];
+  } else {
+    template = [15, 30, 15, 30];
+  }
+
+  if (preference === '15+30') return template;
+
+  const thirties = template.filter((minutes) => minutes === 30);
+  const fifteens = template.filter((minutes) => minutes === 15);
+  if (thirties.length === 0) return template;
+  if (thirties.length === 1) return [30, ...fifteens];
+  return [30, 15, 30, ...fifteens.slice(1)];
 }
 
 export function proposeBreakTimes(
   shift: ShiftLike,
   durations: number[],
-  opts?: { offsetMinutes?: number }
+  opts?: {
+    offsetMinutes?: number;
+    existingBreaks?: Array<{ start_time: string; duration_minutes: number }>;
+  }
 ): { start_time: string; duration_minutes: number }[] {
   const startMin = parseHHMM(shift.start_time);
   const endMin = shift.end_time ? parseHHMM(shift.end_time) : null;
   if (startMin == null || endMin == null) return [];
 
-  // Simple cadence: first break around +2h30, subsequent breaks around +2h30 after previous break start.
-  const cadence = 150; // minutes
   const out: { start_time: string; duration_minutes: number }[] = [];
-  let cursor = startMin + cadence + (opts?.offsetMinutes ?? 0);
+  if (durations.length === 0) return out;
 
-  for (const dur of durations) {
-    // Clamp to fit inside shift
-    const latestStart = endMin - dur;
-    const s = Math.min(cursor, latestStart);
-    if (s <= startMin) break;
-    out.push({ start_time: toHHMM(s), duration_minutes: dur });
-    cursor = s + cadence;
+  let previousStart: number | null = null;
+  const offset = opts?.offsetMinutes ?? 0;
+  const existingBreaks = opts?.existingBreaks ?? [];
+  const planned: { start_time: string; duration_minutes: number }[] = [];
+
+  for (let index = 0; index < durations.length; index += 1) {
+    const dur = durations[index];
+    const earliestStart = (previousStart ?? startMin) + 120 + (index === 0 ? offset : 0);
+    const preferredStart = (previousStart ?? startMin) + 150 + (index === 0 ? offset : 0);
+    const latestByCadence = (previousStart ?? startMin) + 180 + (index === 0 ? offset : 0);
+    const latestByShift = endMin - dur - 60;
+    const latestStart = Math.min(latestByCadence, latestByShift);
+    if (latestStart < earliestStart) break;
+
+    let bestStart: number | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let candidate = earliestStart; candidate <= latestStart; candidate += 15) {
+      const candidateBreak = { start_time: toHHMM(candidate), duration_minutes: dur };
+      const overlapCount = [...existingBreaks, ...planned].reduce((count, row) => {
+        return count + (breaksOverlap(candidateBreak, row) ? 1 : 0);
+      }, 0);
+      const score = overlapCount * 1000 + Math.abs(candidate - preferredStart);
+      if (score < bestScore) {
+        bestScore = score;
+        bestStart = candidate;
+      }
+    }
+
+    if (bestStart == null) break;
+    const nextBreak = { start_time: toHHMM(bestStart), duration_minutes: dur };
+    out.push(nextBreak);
+    planned.push(nextBreak);
+    previousStart = bestStart;
   }
 
   return out;

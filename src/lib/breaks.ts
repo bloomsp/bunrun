@@ -1,11 +1,11 @@
 import { parseHHMM } from './time';
 
 export function breakAllowanceMinutes(shiftMinutes: number): number {
+  if (shiftMinutes < 4 * 60) return 0;
   if (shiftMinutes <= 5 * 60) return 15;
-  if (shiftMinutes > 5 * 60 && shiftMinutes < Math.floor(6.5 * 60)) return 45;
-  if (shiftMinutes >= 7 * 60) return 60;
-  // Gap between 6.5h and 7h: keep simple and treat as 45m for now.
-  return 45;
+  if (shiftMinutes < 7 * 60) return 45;
+  if (shiftMinutes < 10 * 60) return 60;
+  return 90;
 }
 
 export function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {

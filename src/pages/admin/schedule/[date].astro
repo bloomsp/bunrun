@@ -7,7 +7,12 @@ import { getDB } from '../../../lib/db';
 import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { breakAllowanceMinutes } from '../../../lib/breaks';
 import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
-import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
+import {
+  buildPlannerContext,
+  isCoverAssignmentValid,
+  listEligibleCoverOptions,
+  type PlannerBreak
+} from '../../../lib/break-planner';
 import Runsheet from '../../../components/Runsheet.astro';
 
 const guard = requireRole(Astro.request, 'admin');
@@ -62,6 +67,7 @@ type ShiftView = ShiftRow & {
   warnings: string[];
   status_label: string;
   area_label: string;
+  preferred_coverer_names: string[];
 };
 
 const breakPanelBaseUrl = `/admin/schedule/${date}?panel=breaks`;
@@ -105,6 +111,14 @@ const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER B
 
 const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
   .results as Status[];
+const shiftCoverPriorityRows = (
+  await DB.prepare(
+    `SELECT scp.shift_id, scp.member_id, scp.priority, m.name
+     FROM shift_cover_priorities scp
+     JOIN members m ON m.id = scp.member_id
+     ORDER BY scp.shift_id ASC, scp.priority ASC`
+  ).all()
+).results as Array<{ shift_id: number; member_id: number; priority: number; name: string }>;
 
 const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
 const permsByMember = new Map<number, Set<string>>();
@@ -118,14 +132,22 @@ const memberById = new Map(members.map((m) => [m.id, m]));
 const areaByKey = new Map(areas.map((a) => [a.key, a]));
 const statusByKey = new Map(statuses.map((s) => [s.key, s]));
 const shiftById = new Map(shifts.map((s) => [s.id, s]));
-const op = operatingHoursFor(date);
-const shiftsByMember = new Map<number, ShiftRow[]>();
-for (const shift of shifts) {
-  const arr = shiftsByMember.get(shift.member_id) ?? [];
-  arr.push(shift);
-  shiftsByMember.set(shift.member_id, arr);
-}
+const preferredCovererIdsByShift = new Map<number, number[]>();
+const preferredCovererNamesByShift = new Map<number, string[]>();
+const preferredRankByShiftId = new Map<number, Map<number, number>>();
+for (const row of shiftCoverPriorityRows) {
+  const ids = preferredCovererIdsByShift.get(row.shift_id) ?? [];
+  ids.push(row.member_id);
+  preferredCovererIdsByShift.set(row.shift_id, ids);
 
+  const names = preferredCovererNamesByShift.get(row.shift_id) ?? [];
+  names.push(row.name);
+  preferredCovererNamesByShift.set(row.shift_id, names);
+}
+for (const [shiftId, ids] of preferredCovererIdsByShift.entries()) {
+  preferredRankByShiftId.set(shiftId, new Map(ids.map((memberId, index) => [memberId, index])));
+}
+const op = operatingHoursFor(date);
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
 const workingShifts = shifts.filter((s) => s.status_key === 'working');
 const workingShiftIds = new Set(workingShifts.map((s) => s.id));
@@ -143,7 +165,8 @@ const shiftViews = shifts.map((s) => {
     computed_minutes: computedMinutes,
     warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes) : [],
     status_label: statusByKey.get(s.status_key)?.label ?? s.status_key,
-    area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key
+    area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key,
+    preferred_coverer_names: preferredCovererNamesByShift.get(s.id) ?? []
   } satisfies ShiftView;
 });
 const shiftViewById = new Map(shiftViews.map((s) => [s.id, s]));
@@ -172,26 +195,36 @@ const breakPanelUrl = selectedBreakAreaKey
   : `${breakPanelBaseUrl}#breaks`;
 const breakPlanningShiftViews = selectedBreakAreaKey ? (workingShiftViewsByArea.get(selectedBreakAreaKey) ?? []) : [];
 const breakPlanningShiftIds = new Set(breakPlanningShiftViews.map((shift) => shift.id));
-const breakRangeById = new Map<number, { start: number; end: number }>();
-for (const b of breaks) {
-  const parsed = rangeFor(b.start_time, b.duration_minutes);
-  if (parsed) breakRangeById.set(b.id, parsed);
-}
-const coveredBreaksByMember = new Map<number, BreakRow[]>();
-const breaksByOffMember = new Map<number, BreakRow[]>();
-for (const b of breaks) {
-  if (b.cover_member_id == null) continue;
-  const arr = coveredBreaksByMember.get(b.cover_member_id) ?? [];
-  arr.push(b);
-  coveredBreaksByMember.set(b.cover_member_id, arr);
-}
-for (const b of breaks) {
+const planner = buildPlannerContext({
+  shifts: shifts.map((shift) => ({
+    id: shift.id,
+    member_id: shift.member_id,
+    home_area_key: shift.home_area_key,
+    status_key: shift.status_key,
+    start_time: shift.start_time,
+    end_time: shift.end_time
+  })),
+  members: members.map((member) => ({
+    id: member.id,
+    all_areas: member.all_areas
+  })),
+  perms,
+  minByArea: areaMinByKey,
+  preferredRankByShiftId
+});
+const plannerBreaks: PlannerBreak[] = breaks.flatMap((b) => {
   const offShift = shiftById.get(b.shift_id);
-  if (!offShift) continue;
-  const arr = breaksByOffMember.get(offShift.member_id) ?? [];
-  arr.push(b);
-  breaksByOffMember.set(offShift.member_id, arr);
-}
+  if (!offShift) return [];
+  return [{
+    id: b.id,
+    shift_id: b.shift_id,
+    start_time: b.start_time,
+    duration_minutes: Number(b.duration_minutes),
+    cover_member_id: b.cover_member_id,
+    off_member_id: offShift.member_id,
+    off_area_key: offShift.home_area_key
+  }];
+});
 const plannedBreakMinutesByShift = new Map<number, number>();
 for (const [shiftId, rows] of breaksByShift.entries()) {
   plannedBreakMinutesByShift.set(
@@ -200,80 +233,13 @@ for (const [shiftId, rows] of breaksByShift.entries()) {
   );
 }
 
-function canCoverArea(memberId: number, areaKey: string) {
-  const m = memberById.get(memberId);
-  if (!m) return false;
-  // @ts-expect-error optional from DB
-  if ((m as any).all_areas === 1) return true;
-  const set = permsByMember.get(memberId);
-  return Boolean(set?.has(areaKey));
-}
-
-function coverOverlaps(memberId: number, target: { start: number; end: number }, breakId: number) {
-  for (const b of coveredBreaksByMember.get(memberId) ?? []) {
-    if (b.id === breakId) continue;
-    const r = breakRangeById.get(b.id);
-    if (r && overlap(target.start, target.end, r.start, r.end)) return true;
-  }
-
-  for (const b of breaksByOffMember.get(memberId) ?? []) {
-    if (b.id === breakId) continue;
-    const r = breakRangeById.get(b.id);
-    if (r && overlap(target.start, target.end, r.start, r.end)) return true;
-  }
-  return false;
-}
-
-function activeShiftForMember(memberId: number, target: { start: number; end: number }, opts?: { workingOnly?: boolean }) {
-  return firstActiveShiftInRange(shiftsByMember.get(memberId) ?? [], target, { workingOnly: opts?.workingOnly });
-}
-
-function violatesMins(offAreaKey: string, coverMemberId: number, target: { start: number; end: number }) {
-  const coverShift = activeShiftForMember(coverMemberId, target, { workingOnly: true });
-  if (!coverShift) return true;
-  const counts = countWorkingShiftsByAreaInRange(shifts, target);
-  // A same-area cover keeps staffing unchanged. A cross-area cover only reduces the
-  // cover member's original area because they move into the covered area.
-  if (coverShift.home_area_key !== offAreaKey) {
-    counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
-  }
-  for (const [k, min] of areaMinByKey.entries()) {
-    if ((counts.get(k) ?? 0) < min) return true;
-  }
-  return false;
-}
-
 const invalidCoverBreaks: { id: number; reason: string }[] = [];
 if (showBreakPlanning) {
-  for (const b of breaks) {
+  for (const b of plannerBreaks) {
     if (!breakPlanningShiftIds.has(b.shift_id)) continue;
     if (b.cover_member_id == null) continue;
-
-    const coverId = b.cover_member_id;
-    const target = breakRangeById.get(b.id);
-    const coverShift = target ? activeShiftForMember(coverId, target, { workingOnly: true }) : null;
-    if (!coverShift) {
-      invalidCoverBreaks.push({ id: b.id, reason: 'Cover not on roster' });
-      continue;
-    }
-
-    const offShift = shiftById.get(b.shift_id);
-    const offAreaKey = offShift?.home_area_key;
-    if (!offAreaKey) continue;
-
-    if (coverShift.home_area_key !== offAreaKey && !canCoverArea(coverId, offAreaKey)) {
-      invalidCoverBreaks.push({ id: b.id, reason: 'Cover not permitted for area' });
-      continue;
-    }
-
-    if (target && coverOverlaps(coverId, target, b.id)) {
-      invalidCoverBreaks.push({ id: b.id, reason: 'Cover conflict (overlap)' });
-      continue;
-    }
-
-    if (target && violatesMins(offAreaKey, coverId, target)) {
-      invalidCoverBreaks.push({ id: b.id, reason: 'Area minimum violated' });
-      continue;
+    if (!isCoverAssignmentValid(planner, plannerBreaks, b, b.cover_member_id)) {
+      invalidCoverBreaks.push({ id: b.id, reason: 'Cover assignment needs review' });
     }
   }
 }
@@ -325,50 +291,29 @@ function warningsForShift(start: string, end: string, minutes: number): string[]
   return out;
 }
 
-function canWorkArea(memberId: number, areaKey: string) {
-  const m = memberById.get(memberId);
-  if (!m) return false;
-  if (m.all_areas === 1) return true;
-  const set = permsByMember.get(memberId);
-  return Boolean(set?.has(areaKey));
-}
-
-function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-  return aStart < bEnd && bStart < aEnd;
-}
-
-function rangeFor(start: string, duration: number) {
-  const s = parseHHMM(start);
-  if (s == null) return null;
-  const minutes = Number(duration);
-  if (!Number.isFinite(minutes)) return null;
-  return { start: s, end: s + minutes };
-}
-
 function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
-  const target = breakRangeById.get(targetBreak.id);
-  return workingShifts.filter((candidate) => {
-    if (candidate.member_id === offShift.member_id) return false;
-    if (!target) return false;
-    if (candidate.id !== activeShiftForMember(candidate.member_id, target, { workingOnly: true })?.id) return false;
-    if (candidate.home_area_key !== offShift.home_area_key && !canWorkArea(candidate.member_id, offShift.home_area_key)) return false;
-
-    for (const ownBreak of breaksByShift.get(candidate.id) ?? []) {
-      const ownRange = breakRangeById.get(ownBreak.id);
-      if (ownRange && overlap(target.start, target.end, ownRange.start, ownRange.end)) return false;
-    }
-
-    for (const coveredBreak of coveredBreaksByMember.get(candidate.member_id) ?? []) {
-      if (coveredBreak.id === targetBreak.id) continue;
-      const coveredRange = breakRangeById.get(coveredBreak.id);
-      if (coveredRange && overlap(target.start, target.end, coveredRange.start, coveredRange.end)) return false;
-    }
-
-    return true;
-  });
+  const plannerBreak = plannerBreaks.find((row) => row.id === targetBreak.id);
+  if (!plannerBreak) return [];
+  const validIds = new Set(
+    listEligibleCoverOptions(planner, plannerBreaks, plannerBreak)
+      .map((row) => row.memberId)
+      .filter((value): value is number => value != null)
+  );
+  return members
+    .filter((member) => validIds.has(member.id))
+    .sort((a, b) => {
+      const ranks = preferredRankByShiftId.get(offShift.id) ?? new Map<number, number>();
+      const aRank = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bRank = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      const aSameArea = workingShifts.some((shift) => shift.member_id === a.id && shift.home_area_key === offShift.home_area_key);
+      const bSameArea = workingShifts.some((shift) => shift.member_id === b.id && shift.home_area_key === offShift.home_area_key);
+      if (aSameArea !== bSameArea) return aSameArea ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
 }
 
-const coverCandidatesByBreakId = new Map<number, ShiftRow[]>();
+const coverCandidatesByBreakId = new Map<number, Member[]>();
 if (showBreakPlanning) {
   for (const shift of breakPlanningShiftViews) {
     for (const b of breaksByShift.get(shift.id) ?? []) {
@@ -638,7 +583,30 @@ if (showBreakPlanning) {
                           <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value={s.end_time ?? ''} required step="60" />
                         </label>
 
-                        <div class="sm:col-span-1 flex items-end gap-2">
+                        <div class="sm:col-span-6">
+                          <div class="text-xs font-medium text-slate-700">Preferred coverers</div>
+                          <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                            {Array.from({ length: 4 }, (_, index) => {
+                              const selectedId = preferredCovererIdsByShift.get(s.id)?.[index] ?? 0;
+                              return (
+                                <label class="block">
+                                  <div class="text-xs text-slate-500">Priority {index + 1}</div>
+                                  <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="preferredCovererIds">
+                                    <option value="">— none —</option>
+                                    {members
+                                      .filter((member) => member.id !== s.member_id)
+                                      .map((member) => (
+                                        <option value={member.id} selected={selectedId === member.id}>{member.name}</option>
+                                      ))}
+                                  </select>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">The planner tries these members first, in order, when they are valid for the break.</div>
+                        </div>
+
+                        <div class="sm:col-span-2 flex items-end gap-2">
                           <button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
                             Save
                           </button>
@@ -674,6 +642,9 @@ if (showBreakPlanning) {
                       <span class="rounded bg-amber-100 px-2 py-1 text-amber-900">{s.warnings.join(' · ')}</span>
                     ) : (
                       <span class="text-slate-500">—</span>
+                    )}
+                    {s.preferred_coverer_names.length > 0 && (
+                      <div class="mt-2 text-xs text-slate-500">Preferred coverers: {s.preferred_coverer_names.join(' → ')}</div>
                     )}
                   </td>
                   <td class="px-3 py-3">
@@ -872,7 +843,7 @@ if (showBreakPlanning) {
                                       <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
                                         <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
                                         {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
-                                          <option value={cs.member_id} selected={b.cover_member_id === cs.member_id}>
+                                          <option value={cs.id} selected={b.cover_member_id === cs.id}>
                                             {cs.name}
                                           </option>
                                         ))}

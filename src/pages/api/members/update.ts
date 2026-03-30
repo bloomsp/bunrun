@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
+import { isBreakPreference } from '../../../lib/member-config';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -13,6 +14,7 @@ export const POST: APIRoute = async ({ request }) => {
   const selectedAreas = form.getAll('areas').map((v) => v.toString());
   const defaultAreaKeyRaw = (form.get('defaultAreaKey') || '').toString().trim();
   const defaultAreaKey = defaultAreaKeyRaw === '' ? null : defaultAreaKeyRaw;
+  const breakPreference = (form.get('breakPreference') || '15+30').toString();
   const returnTo = (form.get('returnTo') || '/admin/members').toString();
 
   if (!Number.isFinite(memberId) || memberId <= 0) {
@@ -20,6 +22,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
   if (!name) {
     return redirectWithMessage('/admin/members', { error: 'Name is required' });
+  }
+  if (!isBreakPreference(breakPreference)) {
+    return redirectWithMessage('/admin/members', { error: 'Invalid break preference' });
   }
 
   const DB = await getDB();
@@ -37,8 +42,8 @@ export const POST: APIRoute = async ({ request }) => {
   const allSelected = selectedAreas.length > 0 && selectedAreas.length === known.size;
 
   try {
-    await DB.prepare('UPDATE members SET name=?, all_areas=?, default_area_key=? WHERE id=?')
-      .bind(name, allSelected ? 1 : 0, defaultAreaKey, memberId)
+    await DB.prepare('UPDATE members SET name=?, all_areas=?, default_area_key=?, break_preference=? WHERE id=?')
+      .bind(name, allSelected ? 1 : 0, defaultAreaKey, breakPreference, memberId)
       .run();
   } catch (e: any) {
     const msg = e?.message ?? String(e);

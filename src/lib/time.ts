@@ -36,8 +36,8 @@ export function toHHMM(totalMinutes: number): string {
 export function operatingHoursFor(dateYYYYMMDD: string): { open: number; close: number } | null {
   const dt = dayTypeForDate(dateYYYYMMDD);
   if (!dt) return null;
-  // weekend 06:00-18:00, weekday 06:00-21:00
+  // weekend 06:00-19:15, weekday 06:00-21:15
   return dt === 'weekend'
-    ? { open: 6 * 60, close: 18 * 60 }
-    : { open: 6 * 60, close: 21 * 60 };
+    ? { open: 6 * 60, close: 19 * 60 + 15 }
+    : { open: 6 * 60, close: 21 * 60 + 15 };
 }

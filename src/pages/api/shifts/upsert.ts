@@ -4,6 +4,7 @@ import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 import { findOverlappingShift } from '../../../lib/shifts';
+import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -38,6 +39,10 @@ export const POST: APIRoute = async ({ request }) => {
   if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift exceeds 10 hours max.' });
 
   const DB = await getDB();
+  const permissionError = await assertMemberCanWorkArea(DB, memberId, homeAreaKey);
+  if (permissionError) {
+    return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: permissionError });
+  }
 
   await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;

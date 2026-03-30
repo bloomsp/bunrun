@@ -1,6 +1,6 @@
 ---
 import { buildTimeSlots, RUNSHEET_END, RUNSHEET_START, RUNSHEET_STEP_MIN } from '../lib/runsheet';
-import { parseHHMM } from '../lib/time';
+import { operatingHoursFor, parseHHMM } from '../lib/time';
 
 export type Area = { key: string; label: string; min_staff?: number };
 export type Shift = {
@@ -24,13 +24,27 @@ export interface Props {
   areas: Area[];
   shifts: Shift[];
   breaks: Break[];
+  variant?: 'default' | 'print';
 }
 
-const { date, areas, shifts, breaks } = Astro.props;
+const { date, areas, shifts, breaks, variant = 'default' } = Astro.props;
 
 const slots = buildTimeSlots();
 const startM = parseHHMM(RUNSHEET_START) ?? 360;
 const timelineColumns = `repeat(${slots.length}, var(--runsheet-slot-width))`;
+const printHours = (() => {
+  const op = operatingHoursFor(date);
+  const open = op?.open ?? startM;
+  const close = op?.close ?? (parseHHMM(RUNSHEET_END) ?? (21 * 60 + 15));
+  const hours: Array<{ start: number; label: string }> = [];
+  for (let t = open; t <= close - 15; t += 60) {
+    const hour = Math.floor(t / 60);
+    const suffix = hour >= 12 ? 'pm' : 'am';
+    const hour12 = ((hour + 11) % 12) + 1;
+    hours.push({ start: t, label: `${hour12}${suffix}` });
+  }
+  return hours;
+})();
 
 const breaksByShift = new Map<number, Break[]>();
 for (const b of breaks) {
@@ -64,7 +78,162 @@ function breakMarker(duration: number) {
   if (duration <= 45) return 'X\nX\nX';
   return 'X\nX\nX\nX';
 }
+
+function printLeftHours(mins: number) {
+  const printStart = printHours[0]?.start ?? startM;
+  return (mins - printStart) / 60;
+}
+
+function overlapsHour(start: number, end: number, hourStart: number) {
+  const hourEnd = hourStart + 60;
+  return start < hourEnd && hourStart < end;
+}
 ---
+
+{variant === 'print' ? (
+  <section class="runsheet-print mt-6">
+    <style>
+      .runsheet-print {
+        --print-area-col: 82px;
+        --print-name-col: 110px;
+        --print-time-col: 74px;
+        --print-hour-col: minmax(0, 1fr);
+        --print-row-height: 26px;
+      }
+
+      .runsheet-print-grid {
+        display: grid;
+        grid-template-columns:
+          var(--print-area-col)
+          var(--print-name-col)
+          var(--print-time-col)
+          repeat(${printHours.length}, var(--print-hour-col));
+      }
+
+      .runsheet-print-cell {
+        border-right: 1px solid #1f2937;
+        border-bottom: 1px solid #1f2937;
+        min-height: var(--print-row-height);
+        font-size: 11px;
+      }
+
+      .runsheet-print-head {
+        background: #e5e7eb;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .runsheet-print-sticky {
+        display: flex;
+        align-items: center;
+        padding: 0 0.35rem;
+      }
+
+      .runsheet-print-hours {
+        position: relative;
+        grid-column: 4 / -1;
+        min-height: var(--print-row-height);
+      }
+
+      .runsheet-print-hours-grid {
+        display: grid;
+        grid-template-columns: repeat(${printHours.length}, 1fr);
+        height: 100%;
+      }
+
+      .runsheet-print-hour {
+        border-right: 1px solid #1f2937;
+      }
+
+      .runsheet-print-hour.is-active.area-tone-0 { background: #d1d5db; }
+      .runsheet-print-hour.is-active.area-tone-1 { background: repeating-linear-gradient(45deg, #d1d5db, #d1d5db 4px, #f3f4f6 4px, #f3f4f6 8px); }
+      .runsheet-print-hour.is-active.area-tone-2 { background: repeating-linear-gradient(90deg, #d1d5db, #d1d5db 3px, #f3f4f6 3px, #f3f4f6 6px); }
+      .runsheet-print-hour.is-active.area-tone-3 { background: repeating-linear-gradient(0deg, #d1d5db, #d1d5db 3px, #f3f4f6 3px, #f3f4f6 6px); }
+      .runsheet-print-hour.is-active.area-tone-4 { background: radial-gradient(circle, #d1d5db 18%, transparent 19%) 0 0/8px 8px, #f3f4f6; }
+
+      .runsheet-print-marker {
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-weight: 700;
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      @media print {
+        .runsheet-print {
+          margin-top: 0;
+        }
+
+        .runsheet-print {
+          --print-area-col: 76px;
+          --print-name-col: 100px;
+          --print-time-col: 64px;
+          --print-row-height: 22px;
+        }
+
+        .runsheet-print-cell {
+          font-size: 9px;
+        }
+
+        .runsheet-print-marker {
+          font-size: 10px;
+        }
+      }
+    </style>
+
+    <div class="mb-2 text-sm text-slate-600">Date: {date}</div>
+    <div class="overflow-x-auto rounded-xl border border-slate-800 bg-white">
+      <div class="runsheet-print-grid border-l border-t border-slate-800">
+        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Area</div>
+        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Name</div>
+        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Shift</div>
+        {printHours.map((hour) => (
+          <div class="runsheet-print-cell runsheet-print-head">{hour.label}</div>
+        ))}
+
+        {areas.flatMap((area, areaIndex) =>
+          shifts
+            .filter((shift) => shift.home_area_key === area.key)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((shift) => {
+              const start = parseHHMM(shift.start_time) ?? startM;
+              const end = shift.end_time ? (parseHHMM(shift.end_time) ?? start) : start;
+              const toneClass = `area-tone-${areaIndex % 5}`;
+              const shiftBreaks = breaksByShift.get(shift.id) ?? [];
+              return (
+                <>
+                  <div class="runsheet-print-cell runsheet-print-sticky">{area.label}</div>
+                  <div class="runsheet-print-cell runsheet-print-sticky">{shift.name}</div>
+                  <div class="runsheet-print-cell runsheet-print-sticky">{shift.start_time}–{shift.end_time ?? '—'}</div>
+                  <div class="runsheet-print-cell runsheet-print-hours">
+                    <div class="runsheet-print-hours-grid">
+                      {printHours.map((hour) => (
+                        <div class:list={['runsheet-print-hour', overlapsHour(start, end, hour.start) && 'is-active', toneClass]}></div>
+                      ))}
+                    </div>
+                    {shiftBreaks.map((breakRow) => {
+                      const breakStart = parseHHMM(breakRow.start_time);
+                      if (breakStart == null) return null;
+                      return (
+                        <div
+                          class="runsheet-print-marker"
+                          style={`left: calc(${printLeftHours(breakStart)} * (100% / ${printHours.length}));`}
+                          title={`Break ${breakRow.start_time}`}
+                        >
+                          X
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })
+        )}
+      </div>
+    </div>
+  </section>
+) : (
 
 <section class="runsheet mt-6" style={`--runsheet-slot-count:${slots.length};`}>
   <style>
@@ -245,3 +414,4 @@ function breakMarker(duration: number) {
     Break marker legend: 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
   </div>
 </section>
+)}

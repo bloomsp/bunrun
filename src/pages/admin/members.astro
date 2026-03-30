@@ -4,11 +4,19 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { BREAK_PREFERENCES } from '../../lib/member-config';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
 
-type Member = { id: number; name: string; active: number; all_areas: number; default_area_key: string | null };
+type Member = {
+  id: number;
+  name: string;
+  active: number;
+  all_areas: number;
+  default_area_key: string | null;
+  break_preference: string;
+};
 
 type Area = { key: string; label: string };
 
@@ -25,7 +33,7 @@ let dbError: string | null = null;
 
 try {
   const DB = await getDB();
-  members = (await DB.prepare('SELECT id, name, active, all_areas, default_area_key FROM members ORDER BY name COLLATE NOCASE ASC').all())
+  members = (await DB.prepare('SELECT id, name, active, all_areas, default_area_key, break_preference FROM members ORDER BY name COLLATE NOCASE ASC').all())
     .results as Member[];
   areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
   perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as Permission[];
@@ -46,7 +54,7 @@ function allowedAreasFor(memberId: number) {
     </div>
 
     <p class="mt-2 text-slate-700">
-      Add/deactivate members and manage which areas each person can work (applies to home area and break coverage).
+      Add/deactivate members, manage which areas each person can work, and set break ordering preferences.
     </p>
 
     {errorMsg && (
@@ -99,6 +107,8 @@ function allowedAreasFor(memberId: number) {
                     Areas: {m.all_areas ? 'All areas' : 'Restricted'}
                     {' · '}
                     Default area: {m.default_area_key ? (areas.find((a) => a.key === m.default_area_key)?.label ?? m.default_area_key) : '—'}
+                    {' · '}
+                    Break preference: {m.break_preference}
                   </div>
 
                   {!m.all_areas && (
@@ -146,7 +156,7 @@ function allowedAreasFor(memberId: number) {
                   <input type="hidden" name="memberId" value={m.id} />
                   <input type="hidden" name="returnTo" value="/admin/members" />
 
-                  <div class="grid gap-4 sm:grid-cols-3">
+                  <div class="grid gap-4 sm:grid-cols-4">
                     <label class="block sm:col-span-1">
                       <div class="text-sm font-medium text-slate-800">Name</div>
                       <input
@@ -170,9 +180,21 @@ function allowedAreasFor(memberId: number) {
                       </select>
                     </label>
 
+                    <label class="block sm:col-span-1">
+                      <div class="text-sm font-medium text-slate-800">Break preference</div>
+                      <select
+                        class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                        name="breakPreference"
+                      >
+                        {BREAK_PREFERENCES.map((pref) => (
+                          <option value={pref} selected={m.break_preference === pref}>{pref}</option>
+                        ))}
+                      </select>
+                    </label>
+
                     <div class="sm:col-span-1">
                       <div class="text-sm font-medium text-slate-800">Allowed areas</div>
-                      <div class="mt-1 text-sm text-slate-600">Applies to home area and break coverage.</div>
+                      <div class="mt-1 text-sm text-slate-600">Applies to home area, shift allocation, and break coverage.</div>
                     </div>
                   </div>
 

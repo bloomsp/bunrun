@@ -4,6 +4,7 @@ import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 import { findOverlappingShift, shiftRange } from '../../../lib/shifts';
+import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -16,6 +17,9 @@ export const POST: APIRoute = async ({ request }) => {
   const statusKey = (form.get('statusKey') || '').toString();
   const startTime = (form.get('startTime') || '').toString();
   const endTime = (form.get('endTime') || '').toString();
+  const preferredCovererIds = form.getAll('preferredCovererIds')
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
   if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid shift' });
@@ -32,6 +36,15 @@ export const POST: APIRoute = async ({ request }) => {
 
   const current = (await DB.prepare('SELECT schedule_id, member_id, start_time, end_time FROM shifts WHERE id=?').bind(shiftId).first()) as any;
   if (!current) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift not found' });
+  const permissionError = await assertMemberCanWorkArea(DB, current.member_id, homeAreaKey);
+  if (permissionError) {
+    return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: permissionError });
+  }
+  if (preferredCovererIds.some((memberId) => memberId === current.member_id)) {
+    return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'A member cannot be their own preferred coverer' });
+  }
+
+  const uniquePreferredCovererIds = [...new Set(preferredCovererIds)].slice(0, 4);
 
   const siblingShifts = (
     await DB.prepare(
@@ -60,6 +73,15 @@ export const POST: APIRoute = async ({ request }) => {
   )
     .bind(homeAreaKey, statusKey, startTime, endTime, shiftMinutes, shiftId)
     .run();
+
+  await DB.prepare('DELETE FROM shift_cover_priorities WHERE shift_id=?').bind(shiftId).run();
+  for (const [index, memberId] of uniquePreferredCovererIds.entries()) {
+    await DB.prepare(
+      'INSERT INTO shift_cover_priorities (shift_id, member_id, priority) VALUES (?, ?, ?)'
+    )
+      .bind(shiftId, memberId, index + 1)
+      .run();
+  }
 
   if (statusKey === 'sick') {
     // Delete breaks for this shift (requirement A)

@@ -2,8 +2,13 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
-import { overlap, minutesRange } from '../../../lib/breaks';
-import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from '../../../lib/shifts';
+import {
+  buildPlannerContext,
+  isCoverAssignmentValid,
+  listEligibleCoverOptions,
+  type PlannerBreak,
+  type PlannerShift
+} from '../../../lib/break-planner';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -36,109 +41,51 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!target) return redirectWithMessage(returnTo, { error: 'Break not found' });
 
-  const targetRange = minutesRange(target.start_time, target.duration_minutes);
-  if (!targetRange) return redirectWithMessage(returnTo, { error: 'Invalid break time' });
-
-  const offShift = (await DB.prepare(
-    `SELECT s.id, s.status_key, s.home_area_key, s.start_time, s.end_time
-     FROM shifts s
-     WHERE s.id=?`
-  )
-    .bind(target.off_shift_id)
-    .first()) as any;
-
-  if (!offShift) return redirectWithMessage(returnTo, { error: 'Shift not found for that member' });
-
   if (coverMemberId !== null) {
-    const coverShifts = (
-      await DB.prepare(
-        `SELECT s.id, s.member_id, s.home_area_key, s.status_key, s.start_time, s.end_time, m.all_areas
-       FROM shifts s
-       JOIN members m ON m.id = s.member_id
-       WHERE s.schedule_id=? AND s.member_id=?`
-      )
-        .bind(target.schedule_id, coverMemberId)
+    const shifts = (await DB.prepare(
+      'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=?'
+    )
+      .bind(target.schedule_id)
+      .all()).results as PlannerShift[];
+    const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as Array<{ id: number; all_areas: number }>;
+    const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as Array<{ member_id: number; area_key: string }>;
+    const areas = (await DB.prepare('SELECT key, min_staff FROM areas').all()).results as Array<{ key: string; min_staff: number }>;
+    const preferredCovererRows = (
+      await DB.prepare('SELECT shift_id, member_id, priority FROM shift_cover_priorities WHERE shift_id=? ORDER BY priority ASC')
+        .bind(target.off_shift_id)
         .all()
-    ).results as any[];
+    ).results as Array<{ shift_id: number; member_id: number; priority: number }>;
+    const preferredRankByShiftId = new Map<number, Map<number, number>>();
+    preferredRankByShiftId.set(target.off_shift_id, new Map(preferredCovererRows.map((row, index) => [row.member_id, index])));
 
-    const coverShift = firstActiveShiftInRange(coverShifts, targetRange, { workingOnly: true }) as any;
-
-    if (!coverShift) return redirectWithMessage(returnTo, { error: 'Cover member is not on the roster for this day' });
-
-    const canWork = coverShift.home_area_key === target.home_area_key || coverShift.all_areas === 1
-      ? true
-      : Boolean(
-          (await DB.prepare('SELECT 1 FROM member_area_permissions WHERE member_id=? AND area_key=?')
-            .bind(coverMemberId, target.home_area_key)
-            .first())
-        );
-
-    if (!canWork) {
-      return redirectWithMessage(returnTo, { error: 'Cover member is not permitted to work that area' });
-    }
-
-    // Cover cannot cover two people at the same time
-    const otherCoverBreaks = (await DB.prepare(
-      `SELECT b.id, b.start_time, b.duration_minutes
+    const planner = buildPlannerContext({
+      shifts,
+      members,
+      perms,
+      minByArea: new Map(areas.map((row) => [row.key, Number(row.min_staff ?? 0)])),
+      preferredRankByShiftId
+    });
+    const breaks = (await DB.prepare(
+      `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+              s.member_id AS off_member_id, s.home_area_key AS off_area_key
        FROM breaks b
        JOIN shifts s ON s.id = b.shift_id
-       WHERE s.schedule_id=? AND b.cover_member_id=? AND b.id<>?`
+       WHERE s.schedule_id=?`
     )
-      .bind(target.schedule_id, coverMemberId, breakId)
-      .all()).results as any[];
+      .bind(target.schedule_id)
+      .all()).results as PlannerBreak[];
 
-    for (const b of otherCoverBreaks) {
-      const r = minutesRange(b.start_time, b.duration_minutes);
-      if (!r) continue;
-      if (overlap(targetRange.start, targetRange.end, r.start, r.end)) {
-        return redirectWithMessage(returnTo, { error: 'Cover member already covering someone else during that time' });
-      }
-    }
+    const currentBreak = breaks.find((row) => row.id === breakId);
+    if (!currentBreak) return redirectWithMessage(returnTo, { error: 'Break not found' });
 
-    // Cover member cannot be on break themselves
-    const coverOwnBreaks = (await DB.prepare(
-      `SELECT b.id, b.start_time, b.duration_minutes
-       FROM breaks b
-       JOIN shifts s ON s.id = b.shift_id
-       WHERE s.schedule_id=? AND s.member_id=?`
-    )
-      .bind(target.schedule_id, coverMemberId)
-      .all()).results as any[];
+    const validCandidateIds = new Set(
+      listEligibleCoverOptions(planner, breaks, currentBreak)
+        .map((row) => row.memberId)
+        .filter((value): value is number => value != null)
+    );
 
-    for (const b of coverOwnBreaks) {
-      const r = minutesRange(b.start_time, b.duration_minutes);
-      if (!r) continue;
-      if (overlap(targetRange.start, targetRange.end, r.start, r.end)) {
-        return redirectWithMessage(returnTo, { error: 'Cover member is on break during that time' });
-      }
-    }
-
-    // Area minimum staffing check
-    const shifts = (
-      await DB.prepare(
-        'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=?'
-      )
-        .bind(target.schedule_id)
-        .all()
-    ).results as any[];
-    const areas = (
-      await DB.prepare('SELECT key AS area_key, label, min_staff FROM areas').all()
-    ).results as Array<{ area_key: string; label: string; min_staff: number }>;
-
-    const counts = countWorkingShiftsByAreaInRange(shifts, targetRange);
-
-    // A same-area cover keeps staffing unchanged. A cross-area cover only reduces the
-    // cover member's original area because they move into the covered area.
-    if (coverShift.home_area_key !== target.home_area_key) {
-      counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
-    }
-
-    const failing = areas.filter((r) => (counts.get(r.area_key) ?? 0) < Number(r.min_staff));
-    if (failing.length) {
-      const msg = failing
-        .map((r) => `${r.label} below minimum (${counts.get(r.area_key) ?? 0}/${r.min_staff})`)
-        .join('; ');
-      return redirectWithMessage(returnTo, { error: `Area staffing minimum would be violated: ${msg}` });
+    if (!validCandidateIds.has(coverMemberId) || !isCoverAssignmentValid(planner, breaks, currentBreak, coverMemberId)) {
+      return redirectWithMessage(returnTo, { error: 'Selected cover member is not available for that break' });
     }
   }
 
