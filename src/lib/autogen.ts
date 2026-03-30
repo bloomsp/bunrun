@@ -107,6 +107,10 @@ export function proposeBreakTimes(
   return out;
 }
 
+export function candidateOffsets(baseOffsetMinutes: number) {
+  return [...new Set([baseOffsetMinutes, baseOffsetMinutes + 15, baseOffsetMinutes + 30, baseOffsetMinutes + 45])];
+}
+
 export function rangeFor(b: { start_time: string; duration_minutes: number }): { start: number; end: number } | null {
   const s = parseHHMM(b.start_time);
   if (s == null) return null;

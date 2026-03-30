@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
-import { computeShiftMinutes, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
+import { candidateOffsets, computeShiftMinutes, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
 import { assignBestCovers, buildPlannerContext, type PlannerBreak } from '../../../lib/break-planner';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -33,9 +33,6 @@ export const POST: APIRoute = async ({ request }) => {
   if (shift.status_key !== 'working') {
     return redirectWithMessage(returnTo, { error: 'Cannot auto-generate breaks for non-working status' });
   }
-
-  // Clear existing breaks for this shift
-  await DB.prepare('DELETE FROM breaks WHERE shift_id=?').bind(shiftId).run();
 
   const shifts = (await DB.prepare(
     `SELECT id, member_id, home_area_key, status_key, start_time, end_time
@@ -85,30 +82,45 @@ export const POST: APIRoute = async ({ request }) => {
   const staggerOffset = (shiftIndexInArea % 4) * 15;
   const shiftMinutes = computeShiftMinutes(shift);
   const durations = generateBreakTemplate(shiftMinutes, shift.break_preference);
-  const proposed = proposeBreakTimes(shift, durations, {
-    offsetMinutes: staggerOffset,
-    existingBreaks: existingBreaks
-      .filter((row) => row.off_area_key === shift.home_area_key)
-      .map((row) => ({ start_time: row.start_time, duration_minutes: Number(row.duration_minutes) }))
-  });
+  const areaBreaks = existingBreaks
+    .filter((row) => row.off_area_key === shift.home_area_key)
+    .map((row) => ({ start_time: row.start_time, duration_minutes: Number(row.duration_minutes) }));
 
-  const pendingBreaks: PlannerBreak[] = proposed.map((row, index) => ({
-    id: -1 - index,
-    shift_id: shift.id,
-    start_time: row.start_time,
-    duration_minutes: row.duration_minutes,
-    cover_member_id: null,
-    off_member_id: shift.member_id,
-    off_area_key: shift.home_area_key
-  }));
+  let bestPendingBreaks: PlannerBreak[] = [];
+  let bestAssignments = new Map<number, number | null>();
+  let bestMissingCount = Number.POSITIVE_INFINITY;
 
-  const assignments = assignBestCovers(planner, existingBreaks, pendingBreaks);
-  let missingCount = 0;
+  for (const offset of candidateOffsets(staggerOffset)) {
+    const proposed = proposeBreakTimes(shift, durations, {
+      offsetMinutes: offset,
+      existingBreaks: areaBreaks
+    });
+
+    const pendingBreaks: PlannerBreak[] = proposed.map((row, index) => ({
+      id: -1 - index,
+      shift_id: shift.id,
+      start_time: row.start_time,
+      duration_minutes: row.duration_minutes,
+      cover_member_id: null,
+      off_member_id: shift.member_id,
+      off_area_key: shift.home_area_key
+    }));
+
+    const assignments = assignBestCovers(planner, existingBreaks, pendingBreaks);
+    const missingCount = pendingBreaks.reduce((count, row) => count + (assignments.get(row.id) == null ? 1 : 0), 0);
+
+    if (missingCount < bestMissingCount) {
+      bestPendingBreaks = pendingBreaks;
+      bestAssignments = assignments;
+      bestMissingCount = missingCount;
+      if (missingCount === 0) break;
+    }
+  }
+
   const statements = [DB.prepare('DELETE FROM breaks WHERE shift_id=?').bind(shiftId)];
 
-  for (const row of pendingBreaks) {
-    const coverMemberId = assignments.get(row.id) ?? null;
-    if (coverMemberId == null) missingCount += 1;
+  for (const row of bestPendingBreaks) {
+    const coverMemberId = bestAssignments.get(row.id) ?? null;
     statements.push(
       DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
         .bind(shiftId, row.start_time, row.duration_minutes, coverMemberId)
@@ -117,7 +129,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   await DB.batch(statements);
 
-  if (missingCount > 0) {
+  if (bestMissingCount > 0) {
     return redirectWithMessage(returnTo, { notice: 'Breaks generated (some missing cover)' });
   }
 
