@@ -113,11 +113,16 @@ export function violatesAreaMinimums(
   target: { start: number; end: number }
 ) {
   const counts = countWorkingShiftsByAreaInRange(context.shifts, target);
+  counts.set(targetBreak.off_area_key, (counts.get(targetBreak.off_area_key) ?? 0) - 1);
+
   if (coverShift.home_area_key !== targetBreak.off_area_key) {
     counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
+    counts.set(targetBreak.off_area_key, (counts.get(targetBreak.off_area_key) ?? 0) + 1);
   }
 
-  for (const [areaKey, minStaff] of context.minByArea.entries()) {
+  for (const [areaKey, activeCount] of counts.entries()) {
+    if (activeCount <= 0) continue;
+    const minStaff = context.minByArea.get(areaKey) ?? 0;
     if ((counts.get(areaKey) ?? 0) < minStaff) return true;
   }
   return false;
