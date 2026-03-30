@@ -257,7 +257,8 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   <style>
     .runsheet {
       --runsheet-name-col: 160px;
-      --runsheet-slot-width: 24px;
+      --runsheet-slot-min-width: 24px;
+      --runsheet-slot-width: max(var(--runsheet-slot-min-width), calc((100% - var(--runsheet-name-col)) / var(--runsheet-slot-count)));
       --runsheet-row-height: 40px;
       --runsheet-header-height: 40px;
       --runsheet-marker-width: 12px;
@@ -271,6 +272,11 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 
     .runsheet-shell {
       width: 100%;
+    }
+
+    .runsheet-grid {
+      width: 100%;
+      min-width: calc(var(--runsheet-name-col) + (var(--runsheet-slot-count) * var(--runsheet-slot-min-width)));
     }
 
     .runsheet-time-label.is-hour {
@@ -336,8 +342,8 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   </div>
 
   <div class="runsheet-shell mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-    <div class="print:min-w-0" style="min-width: calc(var(--runsheet-name-col) + var(--runsheet-grid-width));">
-      <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
+    <div class="runsheet-grid print:min-w-0">
+      <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
         <div class="border-b border-slate-200 bg-white">
           <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
@@ -358,7 +364,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 
         return (
           <div class="runsheet-area border-t border-slate-200">
-            <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
+            <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
               <div class="runsheet-area-label sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
                 {a.label}
               </div>
@@ -380,7 +386,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
               const palette = areaPalette[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
 
               return (
-                <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
+                <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
                   <div class="runsheet-person-cell sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-sm">
                     <div class="flex items-center justify-between gap-2">
                       <span class={s.status_key === 'sick' ? 'font-semibold text-rose-700' : 'font-medium text-slate-900'}>
