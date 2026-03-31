@@ -72,6 +72,10 @@ function widthSlots(start: number, end: number) {
   return ((end - start) / RUNSHEET_STEP_MIN) + 1;
 }
 
+function markerCellCenter(mins: number) {
+  return Math.floor(leftSlots(mins)) + 0.5;
+}
+
 function breakMarker(duration: number) {
   if (duration <= 15) return 'X';
   if (duration <= 30) return 'X\nX';
@@ -444,7 +448,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                         return (
                           <div
                             class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
-                            style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
+                            style={`left: calc(${markerCellCenter(bm)} * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
                             title={`Break ${b.start_time} (${b.duration_minutes}m)`}
                           >
                             {breakMarker(b.duration_minutes)}
