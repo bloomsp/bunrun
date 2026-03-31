@@ -5,6 +5,7 @@ import Layout from '../../layouts/Layout.astro';
 import Runsheet from '../../components/Runsheet.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../lib/schedule';
 
 const guard = requireRole(Astro.request, 'view');
 if (!guard.ok) return guard.redirect;
@@ -15,10 +16,27 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
 }
 
 const DB = await getDB();
+const weekStart = startOfWeek(date);
+const weekDates = weekDatesFor(date);
+const previousWeekDate = addDays(weekStart, -7);
+const nextWeekDate = addDays(weekStart, 7);
+const weekEnd = weekDates[6] ?? date;
 
 await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
 const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
 const scheduleId = sched.id as number;
+
+const weeklyCountsRows = (await DB.prepare(
+  `SELECT sc.date, COUNT(s.id) AS shift_count
+   FROM schedules sc
+   LEFT JOIN shifts s ON s.schedule_id = sc.id
+   WHERE sc.date BETWEEN ? AND ?
+   GROUP BY sc.date`
+).bind(weekStart, weekEnd).all()).results as Array<{ date: string; shift_count: number | string | null }>;
+
+const weekCountsByDate = new Map(
+  weeklyCountsRows.map((row) => [row.date, Number(row.shift_count ?? 0)])
+);
 
 const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as any[];
 
@@ -40,8 +58,46 @@ const breaks = (await DB.prepare(
 
 <Layout title={`Runsheet ${date} | Bunrun`}>
   <div class="mx-auto max-w-[96rem] px-3 py-10">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold tracking-tight">Read-only runsheet</h1>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">Read-only runsheet</h1>
+        <div class="mt-1 text-slate-700">{formatLongDateLabel(date)}</div>
+        <div class="mt-1 text-sm text-slate-500">Week of {weekStart}</div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/view">Change date</a>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${previousWeekDate}`}>
+          Previous week
+        </a>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${nextWeekDate}`}>
+          Next week
+        </a>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-x-auto">
+      <div class="flex min-w-max gap-3">
+        {weekDates.map((tabDate) => {
+          const shiftCount = weekCountsByDate.get(tabDate) ?? 0;
+          const active = tabDate === date;
+          return (
+            <a
+              class:list={[
+                'min-w-[132px] rounded-2xl border px-4 py-3 text-left transition',
+                active
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
+              ]}
+              href={`/view/${tabDate}`}
+            >
+              <div class="text-sm font-semibold">{formatShortDateLabel(tabDate)}</div>
+              <div class="mt-1 text-xs text-slate-600">
+                {shiftCount} shift{shiftCount === 1 ? '' : 's'}
+              </div>
+            </a>
+          );
+        })}
+      </div>
     </div>
 
     <div class="mt-4 flex items-center justify-between gap-3">
