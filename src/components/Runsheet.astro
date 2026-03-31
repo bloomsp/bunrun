@@ -68,12 +68,8 @@ function leftSlots(mins: number) {
   return (mins - startM) / RUNSHEET_STEP_MIN;
 }
 
-function widthSlots(start: number, end: number) {
-  return ((end - start) / RUNSHEET_STEP_MIN) + 1;
-}
-
-function markerCellCenter(mins: number) {
-  return Math.floor(leftSlots(mins)) + 0.5;
+function slotIndex(mins: number) {
+  return Math.max(0, Math.min(slots.length - 1, Math.floor(leftSlots(mins))));
 }
 
 function breakMarker(duration: number) {
@@ -423,38 +419,39 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                     class="relative border-t border-slate-100"
                     style="height: var(--runsheet-row-height); width: var(--runsheet-grid-width);"
                   >
-                    {/* grid lines */}
-                    {slots.map((sl, i) => (
-                      <div
-                        class="absolute top-0 h-full border-l border-slate-100"
-                        style={`left: calc(${i} * var(--runsheet-slot-width));`}
-                      ></div>
-                    ))}
+                    <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
+                      {slots.map(() => (
+                        <div class="border-l border-slate-100"></div>
+                      ))}
+                    </div>
 
-                    {/* shift block */}
                     {s.status_key !== 'sick' && (
-                      <div
-                        class={`runsheet-shift-block absolute top-[6px] h-[30px] rounded-md border ${palette}`}
-                        style={`left: calc(${leftSlots(start)} * var(--runsheet-slot-width)); width: calc(${widthSlots(start, end)} * var(--runsheet-slot-width));`}
-                        title={`${s.start_time}–${s.end_time}`}
-                      ></div>
+                      <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
+                        <div
+                          class={`runsheet-shift-block mt-[6px] mb-[4px] rounded-md border ${palette}`}
+                          style={`grid-column: ${slotIndex(start) + 1} / ${slotIndex(end) + 2};`}
+                          title={`${s.start_time}–${s.end_time}`}
+                        ></div>
+                      </div>
                     )}
 
-                    {/* break markers */}
-                    {s.status_key !== 'sick' &&
-                      bks.map((b) => {
-                        const bm = parseHHMM(b.start_time);
-                        if (bm == null) return null;
-                        return (
-                          <div
-                            class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
-                            style={`left: calc(${markerCellCenter(bm)} * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
-                            title={`Break ${b.start_time} (${b.duration_minutes}m)`}
-                          >
-                            {breakMarker(b.duration_minutes)}
-                          </div>
-                        );
-                      })}
+                    {s.status_key !== 'sick' && (
+                      <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
+                        {bks.map((b) => {
+                          const bm = parseHHMM(b.start_time);
+                          if (bm == null) return null;
+                          return (
+                            <div
+                              class="runsheet-break-marker flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
+                              style={`grid-column: ${slotIndex(bm) + 1};`}
+                              title={`Break ${b.start_time} (${b.duration_minutes}m)`}
+                            >
+                              {breakMarker(b.duration_minutes)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
