@@ -32,19 +32,7 @@ const { date, areas, shifts, breaks, variant = 'default' } = Astro.props;
 const slots = buildTimeSlots();
 const startM = parseHHMM(RUNSHEET_START) ?? 360;
 const timelineColumns = `repeat(${slots.length}, var(--runsheet-slot-width))`;
-const printHours = (() => {
-  const op = operatingHoursFor(date);
-  const open = op?.open ?? startM;
-  const close = op?.close ?? (parseHHMM(RUNSHEET_END) ?? (21 * 60 + 15));
-  const hours: Array<{ start: number; label: string }> = [];
-  for (let t = open; t <= close - 15; t += 60) {
-    const hour = Math.floor(t / 60);
-    const suffix = hour >= 12 ? 'pm' : 'am';
-    const hour12 = ((hour + 11) % 12) + 1;
-    hours.push({ start: t, label: `${hour12}${suffix}` });
-  }
-  return hours;
-})();
+const isPrint = variant === 'print';
 
 const breaksByShift = new Map<number, Break[]>();
 for (const b of breaks) {
@@ -64,6 +52,17 @@ const areaPalette: Record<string, string> = {
   'greeters': 'bg-rose-100 border-rose-300'
 };
 
+const printAreaPalette: Record<string, string> = {
+  'service-desk': 'bg-slate-200 border-slate-400',
+  'registers': 'bg-zinc-200 border-zinc-400',
+  'tool-shop': 'bg-gray-200 border-gray-400',
+  'nursery': 'bg-stone-200 border-stone-400',
+  'cafe': 'bg-neutral-200 border-neutral-400',
+  'car-park': 'bg-slate-300 border-slate-500',
+  'front-door': 'bg-zinc-300 border-zinc-500',
+  'greeters': 'bg-gray-300 border-gray-500'
+};
+
 function compactSlotLabel(mins: number) {
   const hour = Math.floor(mins / 60);
   const minute = mins % 60;
@@ -76,7 +75,7 @@ function leftSlots(mins: number) {
 }
 
 function widthSlots(start: number, end: number) {
-  return (end - start) / RUNSHEET_STEP_MIN;
+  return ((end - start) / RUNSHEET_STEP_MIN) + 1;
 }
 
 function breakMarker(duration: number) {
@@ -84,16 +83,6 @@ function breakMarker(duration: number) {
   if (duration <= 30) return 'X\nX';
   if (duration <= 45) return 'X\nX\nX';
   return 'X\nX\nX\nX';
-}
-
-function printLeftHours(mins: number) {
-  const printStart = printHours[0]?.start ?? startM;
-  return (mins - printStart) / 60;
-}
-
-function overlapsHour(start: number, end: number, hourStart: number) {
-  const hourEnd = hourStart + 60;
-  return start < hourEnd && hourStart < end;
 }
 
 function formatShiftLength(startTime: string, endTime: string | null) {
@@ -109,154 +98,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 }
 ---
 
-{variant === 'print' ? (
-  <section class="runsheet-print mt-6">
-    <style>
-      .runsheet-print {
-        --print-area-col: 82px;
-        --print-name-col: 110px;
-        --print-time-col: 74px;
-        --print-hour-col: minmax(0, 1fr);
-        --print-row-height: 26px;
-      }
-
-      .runsheet-print-grid {
-        display: grid;
-        grid-template-columns:
-          var(--print-area-col)
-          var(--print-name-col)
-          var(--print-time-col)
-          repeat(${printHours.length}, var(--print-hour-col));
-      }
-
-      .runsheet-print-cell {
-        border-right: 1px solid #1f2937;
-        border-bottom: 1px solid #1f2937;
-        min-height: var(--print-row-height);
-        font-size: 11px;
-      }
-
-      .runsheet-print-head {
-        background: #e5e7eb;
-        font-weight: 700;
-        text-align: center;
-      }
-
-      .runsheet-print-sticky {
-        display: flex;
-        align-items: center;
-        padding: 0 0.35rem;
-      }
-
-      .runsheet-print-hours {
-        position: relative;
-        grid-column: 4 / -1;
-        min-height: var(--print-row-height);
-      }
-
-      .runsheet-print-hours-grid {
-        display: grid;
-        grid-template-columns: repeat(${printHours.length}, 1fr);
-        height: 100%;
-      }
-
-      .runsheet-print-hour {
-        border-right: 1px solid #1f2937;
-      }
-
-      .runsheet-print-hour.is-active.area-tone-0 { background: #d1d5db; }
-      .runsheet-print-hour.is-active.area-tone-1 { background: repeating-linear-gradient(45deg, #d1d5db, #d1d5db 4px, #f3f4f6 4px, #f3f4f6 8px); }
-      .runsheet-print-hour.is-active.area-tone-2 { background: repeating-linear-gradient(90deg, #d1d5db, #d1d5db 3px, #f3f4f6 3px, #f3f4f6 6px); }
-      .runsheet-print-hour.is-active.area-tone-3 { background: repeating-linear-gradient(0deg, #d1d5db, #d1d5db 3px, #f3f4f6 3px, #f3f4f6 6px); }
-      .runsheet-print-hour.is-active.area-tone-4 { background: radial-gradient(circle, #d1d5db 18%, transparent 19%) 0 0/8px 8px, #f3f4f6; }
-
-      .runsheet-print-marker {
-        position: absolute;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        font-weight: 700;
-        font-size: 11px;
-        line-height: 1;
-      }
-
-      @media print {
-        .runsheet-print {
-          margin-top: 0;
-        }
-
-        .runsheet-print {
-          --print-area-col: 76px;
-          --print-name-col: 100px;
-          --print-time-col: 64px;
-          --print-row-height: 22px;
-        }
-
-        .runsheet-print-cell {
-          font-size: 9px;
-        }
-
-        .runsheet-print-marker {
-          font-size: 10px;
-        }
-      }
-    </style>
-
-    <div class="mb-2 text-sm text-slate-600">Date: {date}</div>
-    <div class="overflow-x-auto rounded-xl border border-slate-800 bg-white">
-      <div class="runsheet-print-grid border-l border-t border-slate-800">
-        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Area</div>
-        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Name</div>
-        <div class="runsheet-print-cell runsheet-print-head runsheet-print-sticky">Shift</div>
-        {printHours.map((hour) => (
-          <div class="runsheet-print-cell runsheet-print-head">{hour.label}</div>
-        ))}
-
-        {areas.flatMap((area, areaIndex) =>
-          shifts
-            .filter((shift) => shift.home_area_key === area.key)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map((shift) => {
-              const start = parseHHMM(shift.start_time) ?? startM;
-              const end = shift.end_time ? (parseHHMM(shift.end_time) ?? start) : start;
-              const toneClass = `area-tone-${areaIndex % 5}`;
-              const shiftBreaks = breaksByShift.get(shift.id) ?? [];
-              return (
-                <>
-                  <div class="runsheet-print-cell runsheet-print-sticky">{area.label}</div>
-                  <div class="runsheet-print-cell runsheet-print-sticky">{shift.name}</div>
-                  <div class="runsheet-print-cell runsheet-print-sticky">
-                    {shift.start_time}–{shift.end_time ?? '—'}{formatShiftLength(shift.start_time, shift.end_time) ? ` (${formatShiftLength(shift.start_time, shift.end_time)})` : ''}
-                  </div>
-                  <div class="runsheet-print-cell runsheet-print-hours">
-                    <div class="runsheet-print-hours-grid">
-                      {printHours.map((hour) => (
-                        <div class:list={['runsheet-print-hour', overlapsHour(start, end, hour.start) && 'is-active', toneClass]}></div>
-                      ))}
-                    </div>
-                    {shiftBreaks.map((breakRow) => {
-                      const breakStart = parseHHMM(breakRow.start_time);
-                      if (breakStart == null) return null;
-                      return (
-                        <div
-                          class="runsheet-print-marker"
-                          style={`left: calc(${printLeftHours(breakStart)} * (100% / ${printHours.length}));`}
-                          title={`Break ${breakRow.start_time}`}
-                        >
-                          X
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })
-        )}
-      </div>
-    </div>
-  </section>
-) : (
-
-<section class="runsheet mt-6" style={`--runsheet-slot-count:${slots.length};`}>
+<section class:list={['runsheet mt-6', isPrint && 'runsheet-print-mode']} style={`--runsheet-slot-count:${slots.length};`}>
   <style>
     .runsheet {
       --runsheet-name-col: 160px;
@@ -278,6 +120,48 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 
     .runsheet-grid {
       min-width: calc(var(--runsheet-name-col) + var(--runsheet-grid-width));
+    }
+
+    .runsheet-print-mode {
+      --runsheet-name-col: 136px;
+      --runsheet-slot-width: 20px;
+      --runsheet-row-height: 30px;
+      --runsheet-header-height: 30px;
+      --runsheet-marker-width: 10px;
+    }
+
+    .runsheet-print-mode .runsheet-shell {
+      overflow: visible;
+      border-color: #334155;
+      border-radius: 0;
+    }
+
+    .runsheet-print-mode .runsheet-grid {
+      min-width: calc(var(--runsheet-name-col) + var(--runsheet-grid-width));
+    }
+
+    .runsheet-print-mode .runsheet-time-label {
+      font-size: 9px;
+    }
+
+    .runsheet-print-mode .runsheet-person-cell,
+    .runsheet-print-mode .runsheet-area-label {
+      padding-top: 0.3rem;
+      padding-bottom: 0.3rem;
+    }
+
+    .runsheet-print-mode .runsheet-person-cell {
+      font-size: 12px;
+    }
+
+    .runsheet-print-mode .runsheet-shift-block {
+      top: 3px;
+      height: 24px;
+    }
+
+    .runsheet-print-mode .runsheet-break-marker {
+      font-size: 8px;
+      line-height: 8px;
     }
 
     @page {
@@ -337,7 +221,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
     <div class="runsheet-summary text-sm text-slate-600">Date: {date} · {RUNSHEET_START}–{RUNSHEET_END} · {RUNSHEET_STEP_MIN} min blocks</div>
   </div>
 
-  <div class="runsheet-shell mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+  <div class:list={['runsheet-shell mt-4 rounded-xl border bg-white', isPrint ? 'border-slate-700' : 'overflow-x-auto border-slate-200']}>
     <div class="runsheet-grid print:min-w-0">
       <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
@@ -379,7 +263,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
               const start = parseHHMM(s.start_time) ?? startM;
               const end = s.end_time ? parseHHMM(s.end_time) ?? start : start;
               const bks = breaksByShift.get(s.id) ?? [];
-              const palette = areaPalette[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
+              const palette = (isPrint ? printAreaPalette : areaPalette)[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
 
               return (
                 <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
@@ -442,4 +326,3 @@ function formatShiftLength(startTime: string, endTime: string | null) {
     Break marker legend: 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
   </div>
 </section>
-)}
