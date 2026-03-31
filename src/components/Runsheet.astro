@@ -64,6 +64,13 @@ const areaPalette: Record<string, string> = {
   'greeters': 'bg-rose-100 border-rose-300'
 };
 
+function compactSlotLabel(mins: number) {
+  const hour = Math.floor(mins / 60);
+  const minute = mins % 60;
+  if (minute === 0) return String(hour).padStart(2, '0');
+  return '•';
+}
+
 function leftSlots(mins: number) {
   return (mins - startM) / RUNSHEET_STEP_MIN;
 }
@@ -338,7 +345,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
           <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
             {slots.map((s) => (
               <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
-                {s.label}
+                {compactSlotLabel(s.t)}
               </div>
             ))}
           </div>
@@ -361,7 +368,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                   <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
                     {slots.map((s) => (
                       <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
-                        {s.label}
+                        {compactSlotLabel(s.t)}
                       </div>
                     ))}
                   </div>
