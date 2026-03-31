@@ -68,8 +68,8 @@ function leftSlots(mins: number) {
   return (mins - startM) / RUNSHEET_STEP_MIN;
 }
 
-function slotIndex(mins: number) {
-  return Math.max(0, Math.min(slots.length - 1, Math.floor(leftSlots(mins))));
+function widthSlots(start: number, end: number) {
+  return (end - start) / RUNSHEET_STEP_MIN;
 }
 
 function breakMarker(duration: number) {
@@ -253,8 +253,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   <style>
     .runsheet {
       --runsheet-name-col: 160px;
-      --runsheet-slot-min-width: 24px;
-      --runsheet-slot-width: max(var(--runsheet-slot-min-width), calc((100% - var(--runsheet-name-col)) / var(--runsheet-slot-count)));
+      --runsheet-slot-width: 32px;
       --runsheet-row-height: 40px;
       --runsheet-header-height: 40px;
       --runsheet-marker-width: 12px;
@@ -271,23 +270,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
     }
 
     .runsheet-grid {
-      width: 100%;
-      min-width: calc(var(--runsheet-name-col) + (var(--runsheet-slot-count) * var(--runsheet-slot-min-width)));
-    }
-
-    .runsheet-time-label {
-      font-size: 10px;
-      line-height: 1;
-    }
-
-    .runsheet-time-label.is-half-hour {
-      color: #64748b;
-      font-weight: 500;
-    }
-
-    .runsheet-time-label.is-hour {
-      font-weight: 700;
-      color: #334155;
+      min-width: calc(var(--runsheet-name-col) + var(--runsheet-grid-width));
     }
 
     @page {
@@ -349,17 +332,12 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 
   <div class="runsheet-shell mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
     <div class="runsheet-grid print:min-w-0">
-      <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
+      <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
         <div class="sticky left-0 z-20 border-b border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">Area / Person</div>
         <div class="border-b border-slate-200 bg-white">
           <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
             {slots.map((s) => (
-              <div
-                class:list={[
-                  'runsheet-time-label grid place-items-center border-l border-slate-200 px-1 text-center',
-                  s.t % 60 === 0 ? 'is-hour' : 'is-half-hour'
-                ]}
-              >
+              <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
                 {s.label}
               </div>
             ))}
@@ -375,19 +353,14 @@ function formatShiftLength(startTime: string, endTime: string | null) {
 
         return (
           <div class="runsheet-area border-t border-slate-200">
-            <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
+            <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
               <div class="runsheet-area-label sticky left-0 z-10 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
                 {a.label}
               </div>
                 <div class="bg-slate-50">
                   <div class="grid" style={`grid-template-columns: ${timelineColumns}; height: var(--runsheet-header-height);`}>
                     {slots.map((s) => (
-                      <div
-                        class:list={[
-                          'runsheet-time-label grid place-items-center border-l border-slate-200 px-1 text-center',
-                          s.t % 60 === 0 ? 'is-hour' : 'is-half-hour'
-                        ]}
-                      >
+                      <div class="runsheet-time-label grid place-items-center border-l border-slate-200 px-2 text-center text-[12px] text-slate-600">
                         {s.label}
                       </div>
                     ))}
@@ -402,7 +375,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
               const palette = areaPalette[s.home_area_key] ?? 'bg-slate-100 border-slate-300';
 
               return (
-                <div class="grid" style="grid-template-columns: var(--runsheet-name-col) minmax(0, var(--runsheet-grid-width));">
+                <div class="grid" style="grid-template-columns: var(--runsheet-name-col) var(--runsheet-grid-width);">
                   <div class="runsheet-person-cell sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-2 text-sm">
                     <div class="flex items-center justify-between gap-2">
                       <span class={s.status_key === 'sick' ? 'font-semibold text-rose-700' : 'font-medium text-slate-900'}>
@@ -419,39 +392,35 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                     class="relative border-t border-slate-100"
                     style="height: var(--runsheet-row-height); width: var(--runsheet-grid-width);"
                   >
-                    <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
-                      {slots.map(() => (
-                        <div class="border-l border-slate-100"></div>
-                      ))}
-                    </div>
+                    {slots.map((sl, i) => (
+                      <div
+                        class="absolute top-0 h-full border-l border-slate-100"
+                        style={`left: calc(${i} * var(--runsheet-slot-width));`}
+                      ></div>
+                    ))}
 
                     {s.status_key !== 'sick' && (
-                      <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
-                        <div
-                          class={`runsheet-shift-block mt-[6px] mb-[4px] rounded-md border ${palette}`}
-                          style={`grid-column: ${slotIndex(start) + 1} / ${slotIndex(end) + 2};`}
-                          title={`${s.start_time}–${s.end_time}`}
-                        ></div>
-                      </div>
+                      <div
+                        class={`runsheet-shift-block absolute top-[6px] h-[30px] rounded-md border ${palette}`}
+                        style={`left: calc(${leftSlots(start)} * var(--runsheet-slot-width)); width: calc(${widthSlots(start, end)} * var(--runsheet-slot-width));`}
+                        title={`${s.start_time}–${s.end_time}`}
+                      ></div>
                     )}
 
-                    {s.status_key !== 'sick' && (
-                      <div class="absolute inset-0 grid" style={`grid-template-columns: ${timelineColumns};`}>
-                        {bks.map((b) => {
-                          const bm = parseHHMM(b.start_time);
-                          if (bm == null) return null;
-                          return (
-                            <div
-                              class="runsheet-break-marker flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
-                              style={`grid-column: ${slotIndex(bm) + 1};`}
-                              title={`Break ${b.start_time} (${b.duration_minutes}m)`}
-                            >
-                              {breakMarker(b.duration_minutes)}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {s.status_key !== 'sick' &&
+                      bks.map((b) => {
+                        const bm = parseHHMM(b.start_time);
+                        if (bm == null) return null;
+                        return (
+                          <div
+                            class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
+                            style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
+                            title={`Break ${b.start_time} (${b.duration_minutes}m)`}
+                          >
+                            {breakMarker(b.duration_minutes)}
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               );
