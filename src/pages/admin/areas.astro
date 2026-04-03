@@ -79,49 +79,62 @@ const areas = (await DB.prepare(
     )}
 
     <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div class="grid grid-cols-[minmax(0,1.4fr)_120px_120px_auto] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
-        <div>Area</div>
-        <div>Min staff</div>
-        <div>Members</div>
-        <div class="text-right">Actions</div>
-      </div>
-
-      {areas.map((area) => (
-        <div class="grid grid-cols-[minmax(0,1.4fr)_120px_120px_auto] gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0">
-          <div>
-            <div class="font-medium text-slate-900">{area.label}</div>
-            <div class="mt-1 text-xs text-slate-500">Key: {area.key}</div>
-            {area.shift_count > 0 && (
-              <div class="mt-1 text-xs text-slate-500">{area.shift_count} recorded shift{area.shift_count === 1 ? '' : 's'}</div>
-            )}
-          </div>
-          <div class="text-sm text-slate-700">{area.min_staff}</div>
-          <div class="text-sm text-slate-700">{area.member_count}</div>
-          <div class="flex flex-wrap justify-end gap-2">
-            <button
-              class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-              type="button"
-              data-open-edit-area
-              data-key={area.key}
-              data-label={area.label}
-              data-min-staff={area.min_staff}
-            >
-              Modify
-            </button>
-            <button
-              class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-              type="button"
-              data-open-delete-area
-              data-key={area.key}
-              data-label={area.label}
-              data-member-count={area.member_count}
-              data-shift-count={area.shift_count}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      ))}
+      <table class="w-full table-fixed border-collapse">
+        <colgroup>
+          <col />
+          <col class="w-28" />
+          <col class="w-28" />
+          <col class="w-56" />
+        </colgroup>
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700">
+            <th class="px-5 py-3 text-left">Area</th>
+            <th class="px-5 py-3 text-right">Min staff</th>
+            <th class="px-5 py-3 text-right">Members</th>
+            <th class="px-5 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {areas.map((area) => (
+            <tr class="border-b border-slate-100 last:border-b-0">
+              <td class="px-5 py-4 align-top">
+                <div class="font-medium text-slate-900">{area.label}</div>
+                <div class="mt-1 text-xs text-slate-500">Key: {area.key}</div>
+                {area.shift_count > 0 && (
+                  <div class="mt-1 text-xs text-slate-500">{area.shift_count} recorded shift{area.shift_count === 1 ? '' : 's'}</div>
+                )}
+              </td>
+              <td class="px-5 py-4 text-right align-top text-sm tabular-nums text-slate-700">{area.min_staff}</td>
+              <td class="px-5 py-4 text-right align-top text-sm tabular-nums text-slate-700">{area.member_count}</td>
+              <td class="px-5 py-4 align-top">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <button
+                    class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                    type="button"
+                    data-open-edit-area
+                    data-key={area.key}
+                    data-label={area.label}
+                    data-min-staff={area.min_staff}
+                  >
+                    Modify
+                  </button>
+                  <button
+                    class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+                    type="button"
+                    data-open-delete-area
+                    data-key={area.key}
+                    data-label={area.label}
+                    data-member-count={area.member_count}
+                    data-shift-count={area.shift_count}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   </div>
 
