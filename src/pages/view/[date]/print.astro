@@ -48,6 +48,11 @@ const breaks = (await DB.prepare(
   </style>
 
   <div class="px-4 py-6">
+    <div class="mb-4">
+      <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${date}`}>
+        Back
+      </a>
+    </div>
     <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} variant="print" />
     <div class="mt-4 text-sm text-slate-600">
       Print this page to PDF.
