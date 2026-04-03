@@ -111,16 +111,29 @@ export function hasCoverConflict(
 
 export function violatesAreaMinimums(
   context: PlannerContext,
-  targetBreak: Pick<PlannerBreak, 'off_area_key'>,
-  coverShift: Pick<PlannerShift, 'home_area_key'>,
-  target: { start: number; end: number }
+  breaks: PlannerBreak[],
+  targetBreak: PlannerBreak,
+  target: { start: number; end: number },
+  coverMemberId: number | null
 ) {
   const counts = countWorkingShiftsByAreaInRange(context.shifts, target);
-  counts.set(targetBreak.off_area_key, (counts.get(targetBreak.off_area_key) ?? 0) - 1);
+  const overlappingBreaks = breaks.filter((row) => {
+    const range = breakTargetRange(row);
+    if (!range) return false;
+    return overlap(target.start, target.end, range.start, range.end);
+  });
 
-  if (coverShift.home_area_key !== targetBreak.off_area_key) {
-    counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
-    counts.set(targetBreak.off_area_key, (counts.get(targetBreak.off_area_key) ?? 0) + 1);
+  for (const row of overlappingBreaks) {
+    const nextCoverMemberId = row.id === targetBreak.id ? coverMemberId : row.cover_member_id;
+    counts.set(row.off_area_key, (counts.get(row.off_area_key) ?? 0) - 1);
+
+    if (nextCoverMemberId == null) continue;
+    const coverShift = activeWorkingShiftForMember(context, nextCoverMemberId, target);
+    if (!coverShift) continue;
+    if (coverShift.home_area_key !== row.off_area_key) {
+      counts.set(coverShift.home_area_key, (counts.get(coverShift.home_area_key) ?? 0) - 1);
+      counts.set(row.off_area_key, (counts.get(row.off_area_key) ?? 0) + 1);
+    }
   }
 
   for (const [areaKey, activeCount] of counts.entries()) {
@@ -129,6 +142,16 @@ export function violatesAreaMinimums(
     if ((counts.get(areaKey) ?? 0) < minStaff) return true;
   }
   return false;
+}
+
+export function isAreaCoveredWithoutAssignedCover(
+  context: PlannerContext,
+  breaks: PlannerBreak[],
+  targetBreak: PlannerBreak
+) {
+  const target = breakTargetRange(targetBreak);
+  if (!target) return false;
+  return !violatesAreaMinimums(context, breaks, targetBreak, target, null);
 }
 
 function coverOptionScore(
@@ -165,13 +188,17 @@ export function listEligibleCoverOptions(
 
   const options: CoverOption[] = [];
 
+  if (isAreaCoveredWithoutAssignedCover(context, breaks, targetBreak)) {
+    options.push({ memberId: null, score: -20 });
+  }
+
   for (const shift of context.shifts) {
     if (shift.status_key !== 'working') continue;
     if (shift.member_id === targetBreak.off_member_id) continue;
     if (activeWorkingShiftForMember(context, shift.member_id, target)?.id !== shift.id) continue;
     if (shift.home_area_key !== targetBreak.off_area_key && !canMemberWorkArea(context, shift.member_id, targetBreak.off_area_key)) continue;
     if (hasCoverConflict(breaks, shift.member_id, target, targetBreak.id)) continue;
-    if (violatesAreaMinimums(context, targetBreak, shift, target)) continue;
+    if (violatesAreaMinimums(context, breaks, targetBreak, target, shift.member_id)) continue;
 
     options.push({
       memberId: shift.member_id,
@@ -180,7 +207,9 @@ export function listEligibleCoverOptions(
   }
 
   options.sort((a, b) => a.score - b.score);
-  options.push({ memberId: null, score: 1000 });
+  if (!options.some((row) => row.memberId == null)) {
+    options.push({ memberId: null, score: 1000 });
+  }
   return options;
 }
 
@@ -190,16 +219,18 @@ export function isCoverAssignmentValid(
   targetBreak: PlannerBreak,
   coverMemberId: number | null
 ) {
-  if (coverMemberId == null) return false;
   const target = breakTargetRange(targetBreak);
   if (!target) return false;
+  if (coverMemberId == null) {
+    return isAreaCoveredWithoutAssignedCover(context, breaks, targetBreak);
+  }
   const coverShift = activeWorkingShiftForMember(context, coverMemberId, target);
   if (!coverShift) return false;
   if (coverShift.home_area_key !== targetBreak.off_area_key && !canMemberWorkArea(context, coverMemberId, targetBreak.off_area_key)) {
     return false;
   }
   if (hasCoverConflict(breaks, coverMemberId, target, targetBreak.id)) return false;
-  if (violatesAreaMinimums(context, targetBreak, coverShift, target)) return false;
+  if (violatesAreaMinimums(context, breaks, targetBreak, target, coverMemberId)) return false;
   return true;
 }
 

@@ -3,7 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { candidateOffsets, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
-import { assignBestCovers, buildPlannerContext, type PlannerBreak } from '../../../lib/break-planner';
+import { assignBestCovers, buildPlannerContext, isCoverAssignmentValid, type PlannerBreak } from '../../../lib/break-planner';
 import { activeShiftAtTime } from '../../../lib/work-blocks';
 
 type WorkBlockRow = {
@@ -120,7 +120,14 @@ export const POST: APIRoute = async ({ request }) => {
         plannedBreaks.filter((row) => row.work_block_id !== block.id),
         pendingBreaks
       );
-      const missingCount = pendingBreaks.reduce((count, row) => count + (assignments.get(row.id) == null ? 1 : 0), 0);
+      const candidateBreaks = pendingBreaks.map((row) => ({
+        ...row,
+        cover_member_id: assignments.get(row.id) ?? null
+      }));
+      const missingCount = candidateBreaks.reduce(
+        (count, row) => count + (isCoverAssignmentValid(planner, [...plannedBreaks.filter((item) => item.work_block_id !== block.id), ...candidateBreaks], row, row.cover_member_id) ? 0 : 1),
+        0
+      );
       if (missingCount < bestMissingCount) {
         bestPendingBreaks = pendingBreaks;
         bestAssignments = assignments;
@@ -145,7 +152,7 @@ export const POST: APIRoute = async ({ request }) => {
     await DB.batch(statements);
   }
 
-  const missingCount = plannedBreaks.filter((row) => row.cover_member_id == null).length;
+  const missingCount = plannedBreaks.filter((row) => !isCoverAssignmentValid(planner, plannedBreaks, row, row.cover_member_id)).length;
   const tail = missingCount > 0 ? ' (some missing cover)' : '';
   const label = mode === 'overwrite' ? 'Breaks generated (overwrite)' : 'Breaks generated (missing only)';
   return redirectWithMessage(returnTo, { notice: `${label}${tail}` });

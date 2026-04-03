@@ -81,7 +81,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   for (const row of pendingBreaks) {
     const nextCoverId = assignments.get(row.id) ?? null;
-    if (nextCoverId == null) {
+    if (!isCoverAssignmentValid(planner, [...lockedBreaks, ...pendingBreaks], row, nextCoverId)) {
       stillMissing += 1;
     } else if (row.cover_member_id !== nextCoverId) {
       fixed += 1;

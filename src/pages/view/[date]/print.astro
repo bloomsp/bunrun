@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../../../layouts/Layout.astro';
 import Runsheet from '../../../components/Runsheet.astro';
 import { requireRole } from '../../../lib/auth';
+import { buildPlannerContext, isAreaCoveredWithoutAssignedCover, type PlannerBreak } from '../../../lib/break-planner';
 import { getDB } from '../../../lib/db';
 import { formatDurationMinutes } from '../../../lib/time';
 
@@ -39,9 +40,11 @@ type ShiftRow = {
 };
 type BreakRow = {
   id: number;
+  work_block_id: number | null;
   shift_id: number;
   start_time: string;
   duration_minutes: number;
+  cover_member_id: number | null;
   cover_member_name: string | null;
   off_member_name: string;
   off_area_key: string;
@@ -73,7 +76,7 @@ const shifts = (await DB.prepare(
 ).bind(scheduleId).all()).results as ShiftRow[];
 
 const breaks = (await DB.prepare(
-  `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes,
+  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
           offm.name AS off_member_name, s.home_area_key AS off_area_key, coverm.name AS cover_member_name
    FROM breaks b
    JOIN shifts s ON s.id=b.shift_id
@@ -90,6 +93,45 @@ const groupedShifts = areas
       .sort((a, b) => a.name.localeCompare(b.name) || a.start_time.localeCompare(b.start_time))
   }))
   .filter((group) => group.rows.length > 0);
+
+const planner = buildPlannerContext({
+  shifts: shifts.map((shift) => ({
+    id: shift.id,
+    member_id: shift.member_id,
+    home_area_key: shift.home_area_key,
+    status_key: shift.status_key,
+    shift_role: shift.shift_role,
+    start_time: shift.start_time,
+    end_time: shift.end_time
+  })),
+  members: [],
+  perms: [],
+  minByArea: new Map(areas.map((area) => [area.key, Number(area.min_staff ?? 0)]))
+});
+const shiftById = new Map(shifts.map((shift) => [shift.id, shift]));
+const plannerBreaks: PlannerBreak[] = breaks.flatMap((row) => {
+  const shift = shiftById.get(row.shift_id);
+  if (!shift) return [];
+  return [{
+    id: row.id,
+    work_block_id: row.work_block_id,
+    shift_id: row.shift_id,
+    start_time: row.start_time,
+    duration_minutes: Number(row.duration_minutes),
+    cover_member_id: row.cover_member_id,
+    off_member_id: shift.member_id,
+    off_shift_id: shift.id,
+    off_area_key: row.off_area_key
+  }];
+});
+const areaCoveredByBreakId = new Map(
+  plannerBreaks.map((row) => [row.id, row.cover_member_id == null && isAreaCoveredWithoutAssignedCover(planner, plannerBreaks, row)])
+);
+
+function coverLabel(row: BreakRow) {
+  if (row.cover_member_name) return row.cover_member_name;
+  return areaCoveredByBreakId.get(row.id) ? 'Area covered' : 'Missing cover';
+}
 
 const memberSortedShifts = shifts
   .slice()
@@ -214,7 +256,7 @@ const groupedBreaks = areas
                 <td class="px-3 py-2">{row.off_member_name}</td>
                 <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
                 <td class="px-3 py-2">{row.duration_minutes}m</td>
-                <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                <td class="px-3 py-2">{coverLabel(row)}</td>
               </tr>
             ))}
           </tbody>
@@ -242,7 +284,7 @@ const groupedBreaks = areas
                     <td class="px-3 py-2">{row.start_time}</td>
                     <td class="px-3 py-2">{row.off_member_name}</td>
                     <td class="px-3 py-2">{row.duration_minutes}m</td>
-                    <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                    <td class="px-3 py-2">{coverLabel(row)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -271,7 +313,7 @@ const groupedBreaks = areas
                 <td class="px-3 py-2">{row.start_time}</td>
                 <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
                 <td class="px-3 py-2">{row.duration_minutes}m</td>
-                <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                <td class="px-3 py-2">{coverLabel(row)}</td>
               </tr>
             ))}
           </tbody>

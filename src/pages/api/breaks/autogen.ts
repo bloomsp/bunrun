@@ -3,7 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { candidateOffsets, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
-import { assignBestCovers, buildPlannerContext, type PlannerBreak } from '../../../lib/break-planner';
+import { assignBestCovers, buildPlannerContext, isCoverAssignmentValid, type PlannerBreak } from '../../../lib/break-planner';
 import { activeShiftAtTime } from '../../../lib/work-blocks';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -95,7 +95,14 @@ export const POST: APIRoute = async ({ request }) => {
     });
 
     const assignments = assignBestCovers(planner, existingBreaks.filter((row) => row.work_block_id !== workBlockId), pendingBreaks);
-    const missingCount = pendingBreaks.reduce((count, row) => count + (assignments.get(row.id) == null ? 1 : 0), 0);
+    const candidateBreaks = pendingBreaks.map((row) => ({
+      ...row,
+      cover_member_id: assignments.get(row.id) ?? null
+    }));
+    const missingCount = candidateBreaks.reduce(
+      (count, row) => count + (isCoverAssignmentValid(planner, [...existingBreaks.filter((item) => item.work_block_id !== workBlockId), ...candidateBreaks], row, row.cover_member_id) ? 0 : 1),
+      0
+    );
     if (missingCount < bestMissingCount) {
       bestPendingBreaks = pendingBreaks;
       bestAssignments = assignments;
@@ -115,7 +122,13 @@ export const POST: APIRoute = async ({ request }) => {
 
   await DB.batch(statements);
 
-  if (bestMissingCount > 0) {
+  const generatedBreaks = bestPendingBreaks.map((row) => ({
+    ...row,
+    cover_member_id: bestAssignments.get(row.id) ?? null
+  }));
+  const actualMissingCount = generatedBreaks.filter((row) => !isCoverAssignmentValid(planner, generatedBreaks, row, row.cover_member_id)).length;
+
+  if (actualMissingCount > 0) {
     return redirectWithMessage(returnTo, { notice: 'Breaks generated (some missing cover)' });
   }
 

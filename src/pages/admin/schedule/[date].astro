@@ -11,6 +11,7 @@ import {
   activeWorkingShiftForMember,
   breakTargetRange,
   buildPlannerContext,
+  isAreaCoveredWithoutAssignedCover,
   isCoverAssignmentValid,
   listEligibleCoverOptions,
   type PlannerBreak
@@ -97,6 +98,7 @@ type BreakListRow = {
   off_area_label: string;
   cover_member_name: string | null;
   cover_shift_role: string | null;
+  area_covered: boolean;
 };
 
 const breakPanelBaseUrl = `/admin/schedule/${date}?panel=breaks`;
@@ -198,8 +200,6 @@ const op = operatingHoursFor(date);
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
 const workingShifts = shifts.filter((s) => s.status_key === 'working');
 const workingWorkBlockIds = new Set(workBlocks.map((block) => block.id));
-const uncoveredBreaks = breaks.filter((b) => (b.work_block_id != null ? workingWorkBlockIds.has(b.work_block_id) : true) && b.cover_member_id == null);
-
 // base working counts per area
 const shiftViews = shifts.map((s) => {
   const startMinutes = parseHHMM(s.start_time) ?? 0;
@@ -269,6 +269,14 @@ const plannerBreaks: PlannerBreak[] = breaks.flatMap((b) => {
     off_area_key: offShift.home_area_key
   }];
 });
+const plannerBreakById = new Map(plannerBreaks.map((row) => [row.id, row]));
+const areaCoveredByBreakId = new Map(
+  plannerBreaks.map((row) => [row.id, row.cover_member_id == null && isAreaCoveredWithoutAssignedCover(planner, plannerBreaks, row)])
+);
+const uncoveredBreaks = plannerBreaks.filter((b) =>
+  (b.work_block_id != null ? workingWorkBlockIds.has(b.work_block_id) : true) &&
+  !isCoverAssignmentValid(planner, plannerBreaks, b, b.cover_member_id)
+);
 const plannedBreakMinutesByWorkBlock = new Map<number, number>();
 for (const [workBlockId, rows] of breaksByWorkBlock.entries()) {
   plannedBreakMinutesByWorkBlock.set(
@@ -305,7 +313,8 @@ const chronologicalBreakRows = plannerBreaks
       off_member_name: offMember?.name ?? 'Unknown member',
       off_area_label: areaByKey.get(row.off_area_key)?.label ?? row.off_area_key,
       cover_member_name: coverMember?.name ?? null,
-      cover_shift_role: coverShift?.shift_role ?? null
+      cover_shift_role: coverShift?.shift_role ?? null,
+      area_covered: areaCoveredByBreakId.get(row.id) === true
     } satisfies BreakListRow;
   })
   .sort((a, b) => (parseHHMM(a.start_time) ?? 0) - (parseHHMM(b.start_time) ?? 0) || a.off_member_name.localeCompare(b.off_member_name));
@@ -790,7 +799,7 @@ if (showBreakPlanning) {
             </thead>
             <tbody>
               {chronologicalBreakRows.map((row) => (
-                <tr class:list={['bg-slate-50', !row.cover_member_name && 'bg-rose-50']}>
+                <tr class:list={['bg-slate-50', !row.cover_member_name && !row.area_covered && 'bg-rose-50']}>
                   <td class="px-3 py-3 font-medium">{row.start_time}</td>
                   <td class="px-3 py-3">{row.off_member_name}</td>
                   <td class="px-3 py-3">{row.off_area_label}</td>
@@ -803,6 +812,8 @@ if (showBreakPlanning) {
                           <span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Floater</span>
                         )}
                       </div>
+                    ) : row.area_covered ? (
+                      <span class="font-medium text-emerald-700">Area covered</span>
                     ) : (
                       <span class="font-medium text-rose-700">Missing cover</span>
                     )}
@@ -939,7 +950,7 @@ if (showBreakPlanning) {
                           return (
                             <tr
                               class={
-                                b.cover_member_id == null
+                                !(plannerBreakById.get(b.id) && isCoverAssignmentValid(planner, plannerBreaks, plannerBreakById.get(b.id)!, b.cover_member_id))
                                   ? 'bg-rose-50'
                                   : invalidReasonByBreakId.has(b.id)
                                     ? 'bg-amber-50'
@@ -960,7 +971,9 @@ if (showBreakPlanning) {
                                   <input type="hidden" name="breakId" value={b.id} />
                                   <input type="hidden" name="returnTo" value={breakPanelUrl} />
                                   <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
-                                    <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
+                                    <option value="" selected={b.cover_member_id == null}>
+                                      {areaCoveredByBreakId.get(b.id) ? 'Area covered' : '— missing cover —'}
+                                    </option>
                                     {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
                                       <option value={cs.id} selected={b.cover_member_id === cs.id}>
                                         {cs.name}
