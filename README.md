@@ -2,6 +2,10 @@
 
 Break coordination tool for the Service Desk team.
 
+## User documentation
+
+See [USER_GUIDE.md](./USER_GUIDE.md) for end-user documentation, business-facing break logic notes, and day-to-day operating guidance.
+
 ## Dev setup
 
 ### 1) Install
