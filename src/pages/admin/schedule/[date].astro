@@ -56,6 +56,7 @@ type BreakRow = {
   start_time: string;
   duration_minutes: number;
   cover_member_id: number | null;
+  cover_member_name: string | null;
 };
 
 type WorkBlockRow = {
@@ -117,9 +118,11 @@ const shifts = (await DB.prepare(
 ).bind(scheduleId).all()).results as ShiftRow[];
 
 const breaks = (await DB.prepare(
-  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id
+  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+          coverm.name AS cover_member_name
    FROM breaks b
    JOIN shifts s ON s.id = b.shift_id
+   LEFT JOIN members coverm ON coverm.id = b.cover_member_id
    WHERE s.schedule_id=?
    ORDER BY b.start_time ASC`
 ).bind(scheduleId).all()).results as BreakRow[];

@@ -17,6 +17,7 @@ export type Break = {
   shift_id: number;
   start_time: string;
   duration_minutes: number;
+  cover_member_name?: string | null;
 };
 
 export interface Props {
@@ -83,6 +84,11 @@ function breakMarker(duration: number) {
   if (duration <= 30) return 'X\nX';
   if (duration <= 45) return 'X\nX\nX';
   return 'X\nX\nX\nX';
+}
+
+function breakTitle(b: Break) {
+  const coverText = b.cover_member_name ? ` · Covered by ${b.cover_member_name}` : '';
+  return `Break ${b.start_time} (${b.duration_minutes}m)${coverText}`;
 }
 
 function formatShiftLength(startTime: string, endTime: string | null) {
@@ -306,7 +312,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                           <div
                             class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
                             style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
-                            title={`Break ${b.start_time} (${b.duration_minutes}m)`}
+                            title={breakTitle(b)}
                           >
                             {breakMarker(b.duration_minutes)}
                           </div>
