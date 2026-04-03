@@ -34,11 +34,9 @@ npm run dev
 
 ## Deployment
 
-Current production is still on **Cloudflare Pages**, and `npm run build` includes a Pages compatibility postbuild that restores `dist/_worker.js` and `dist/_routes.json`.
+Production is now deployed on **Cloudflare Workers**.
 
-### Cloudflare Workers migration
-
-The Astro 6 + `@astrojs/cloudflare` v13 stack is Worker-first. For a proper long-term deployment target, use:
+The Astro 6 + `@astrojs/cloudflare` v13 stack is Worker-first. Use:
 
 ```bash
 npm run deploy:worker
@@ -51,14 +49,8 @@ Cloudflare-side configuration needed:
 - Environment variables / secrets: `BUNRUN_VIEW_PASSWORD`, `BUNRUN_ADMIN_PASSWORD`
 - Session KV binding: `SESSION`
 - `workers.dev` enabled for smoke testing
-- Custom domain attached to the Worker for production cutover
+- Custom domain attached to the Worker for production
 
 Notes:
-- `bunrun.pages.dev` is a Pages hostname and will not become the Worker URL.
-- The Worker will instead be reachable on a `*.workers.dev` hostname unless you attach a custom domain.
-
-Recommended cutover flow:
-1. Deploy the Worker.
-2. Verify `/`, `/view`, `/admin`, and login flows on the `*.workers.dev` URL.
-3. Attach the production domain to the Worker.
-4. Retire the Pages deployment once traffic is cut over.
+- The Worker is reachable on a `*.workers.dev` hostname unless you attach a custom domain.
+- The repo no longer includes Cloudflare Pages compatibility output.

@@ -19,7 +19,7 @@ export async function getDB(): Promise<D1Database> {
     return cfEnv.DB;
   } catch (e) {
     throw new Error(
-      'D1 is not available in astro dev. Use Cloudflare Pages preview/production, or run via wrangler pages dev to test D1 bindings.'
+      'D1 is not available in astro dev. Use the deployed Cloudflare Worker, or run via wrangler dev to test D1 bindings.'
     );
   }
 }
