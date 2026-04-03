@@ -2,19 +2,17 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
-import { candidateOffsets, computeShiftMinutes, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
+import { candidateOffsets, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
 import { assignBestCovers, buildPlannerContext, type PlannerBreak } from '../../../lib/break-planner';
+import { activeShiftAtTime } from '../../../lib/work-blocks';
 
-type ShiftRow = {
+type WorkBlockRow = {
   id: number;
   schedule_id: number;
   member_id: number;
-  home_area_key: string;
-  status_key: string;
-  shift_role: string;
   start_time: string;
-  end_time: string | null;
-  shift_minutes: number;
+  end_time: string;
+  total_minutes: number;
   break_preference?: string;
 };
 
@@ -24,28 +22,30 @@ export const POST: APIRoute = async ({ request }) => {
 
   const form = await request.formData();
   const date = (form.get('date') || '').toString();
-  const mode = (form.get('mode') || 'missing').toString(); // missing|overwrite
+  const mode = (form.get('mode') || 'missing').toString();
   const returnTo = (form.get('returnTo') || `/admin/schedule/${date}?panel=breaks#breaks`).toString();
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(returnTo, { error: 'Invalid date' });
   if (mode !== 'missing' && mode !== 'overwrite') return redirectWithMessage(returnTo, { error: 'Invalid mode' });
 
   const DB = await getDB();
-
   const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
   if (!sched) return redirectWithMessage(returnTo, { error: 'Schedule not found' });
-
   const scheduleId = sched.id as number;
 
+  const blocks = (await DB.prepare(
+    `SELECT wb.id, wb.schedule_id, wb.member_id, wb.start_time, wb.end_time, wb.total_minutes, m.break_preference
+     FROM work_blocks wb
+     JOIN members m ON m.id = wb.member_id
+     WHERE wb.schedule_id=?
+     ORDER BY wb.start_time ASC, wb.id ASC`
+  ).bind(scheduleId).all()).results as WorkBlockRow[];
+
   const shifts = (await DB.prepare(
-    `SELECT s.id, s.schedule_id, s.member_id, s.home_area_key, s.status_key, s.start_time, s.end_time, s.shift_minutes,
-            s.shift_role, m.break_preference
-     FROM shifts s
-     JOIN members m ON m.id = s.member_id
-     WHERE schedule_id=? AND status_key <> 'sick'`
-  )
-    .bind(scheduleId)
-    .all()).results as ShiftRow[];
+    `SELECT id, work_block_id, member_id, home_area_key, status_key, shift_role, start_time, end_time, shift_minutes
+     FROM shifts
+     WHERE schedule_id=?`
+  ).bind(scheduleId).all()).results as any[];
 
   const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as any[];
   const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
@@ -62,15 +62,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const planner = buildPlannerContext({
-    shifts: shifts.map((shift) => ({
-      id: shift.id,
-      member_id: shift.member_id,
-      home_area_key: shift.home_area_key,
-      status_key: shift.status_key,
-      shift_role: shift.shift_role,
-      start_time: shift.start_time,
-      end_time: shift.end_time
-    })),
+    shifts,
     members,
     perms,
     minByArea,
@@ -80,75 +72,54 @@ export const POST: APIRoute = async ({ request }) => {
   let plannedBreaks: PlannerBreak[] = mode === 'overwrite'
     ? []
     : ((await DB.prepare(
-      `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
               s.member_id AS off_member_id, s.home_area_key AS off_area_key
        FROM breaks b
-       JOIN shifts s ON s.id=b.shift_id
+       JOIN shifts s ON s.id = b.shift_id
        WHERE s.schedule_id=?`
-    )
-      .bind(scheduleId)
-      .all()).results as PlannerBreak[]);
+    ).bind(scheduleId).all()).results as PlannerBreak[]);
+
   const statements = mode === 'overwrite'
-    ? [
-        DB.prepare(
-          `DELETE FROM breaks WHERE shift_id IN (SELECT id FROM shifts WHERE schedule_id=? AND status_key <> 'sick')`
-        ).bind(scheduleId)
-      ]
+    ? [DB.prepare('DELETE FROM breaks WHERE work_block_id IN (SELECT id FROM work_blocks WHERE schedule_id=?)').bind(scheduleId)]
     : [];
 
   let generated = 0;
-  const workingShiftsByArea = new Map<string, ShiftRow[]>();
-  for (const shift of shifts) {
-    if (shift.status_key !== 'working') continue;
-    const rows = workingShiftsByArea.get(shift.home_area_key) ?? [];
-    rows.push(shift);
-    workingShiftsByArea.set(shift.home_area_key, rows);
-  }
-  for (const rows of workingShiftsByArea.values()) {
-    rows.sort((a, b) =>
-      a.start_time.localeCompare(b.start_time) ||
-      (a.end_time ?? '').localeCompare(b.end_time ?? '') ||
-      a.member_id - b.member_id
-    );
-  }
+  for (const block of blocks) {
+    if (mode === 'missing' && plannedBreaks.some((row) => row.work_block_id === block.id)) continue;
 
-  for (const shift of shifts) {
-    if (shift.status_key === 'sick') continue;
+    const blockShifts = shifts
+      .filter((shift: any) => shift.work_block_id === block.id && shift.status_key === 'working')
+      .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
+    if (blockShifts.length === 0) continue;
 
-    if (mode === 'missing') {
-      if (plannedBreaks.some((row) => row.shift_id === shift.id)) continue;
-    }
-
-    const shiftMinutes = computeShiftMinutes(shift);
-    const durations = generateBreakTemplate(shiftMinutes, (shift.break_preference as any) ?? '15+30');
-    const areaPeers = workingShiftsByArea.get(shift.home_area_key) ?? [];
-    const shiftIndexInArea = Math.max(0, areaPeers.findIndex((row) => row.id === shift.id));
-    const staggerOffset = (shiftIndexInArea % 4) * 15;
-    const areaBreaks = plannedBreaks
-      .filter((row) => row.off_area_key === shift.home_area_key)
-      .map((row) => ({ start_time: row.start_time, duration_minutes: Number(row.duration_minutes) }));
-
+    const durations = generateBreakTemplate(Number(block.total_minutes ?? 0), (block.break_preference as any) ?? '15+30');
     let bestPendingBreaks: PlannerBreak[] = [];
     let bestAssignments = new Map<number, number | null>();
     let bestMissingCount = Number.POSITIVE_INFINITY;
 
-    for (const offset of candidateOffsets(staggerOffset)) {
-      const proposed = proposeBreakTimes(shift, durations, {
-        offsetMinutes: offset,
-        existingBreaks: areaBreaks
+    for (const offset of candidateOffsets(0)) {
+      const proposed = proposeBreakTimes(block as any, durations, { offsetMinutes: offset, existingBreaks: [] });
+      const pendingBreaks: PlannerBreak[] = proposed.flatMap((row, index) => {
+        const activeShift = activeShiftAtTime(blockShifts, block.member_id, row.start_time);
+        if (!activeShift) return [];
+        return [{
+          id: -(block.id * 10 + index + 1),
+          work_block_id: block.id,
+          shift_id: activeShift.id,
+          start_time: row.start_time,
+          duration_minutes: row.duration_minutes,
+          cover_member_id: null,
+          off_member_id: block.member_id,
+          off_shift_id: activeShift.id,
+          off_area_key: activeShift.home_area_key
+        }];
       });
 
-      const pendingBreaks: PlannerBreak[] = proposed.map((row, index) => ({
-        id: -(shift.id * 10 + index + 1),
-        shift_id: shift.id,
-        start_time: row.start_time,
-        duration_minutes: row.duration_minutes,
-        cover_member_id: null,
-        off_member_id: shift.member_id,
-        off_area_key: shift.home_area_key
-      }));
-
-      const assignments = assignBestCovers(planner, plannedBreaks, pendingBreaks);
+      const assignments = assignBestCovers(
+        planner,
+        plannedBreaks.filter((row) => row.work_block_id !== block.id),
+        pendingBreaks
+      );
       const missingCount = pendingBreaks.reduce((count, row) => count + (assignments.get(row.id) == null ? 1 : 0), 0);
       if (missingCount < bestMissingCount) {
         bestPendingBreaks = pendingBreaks;
@@ -161,8 +132,8 @@ export const POST: APIRoute = async ({ request }) => {
     for (const row of bestPendingBreaks) {
       const coverMemberId = bestAssignments.get(row.id) ?? null;
       statements.push(
-        DB.prepare('INSERT INTO breaks (shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?)')
-          .bind(shift.id, row.start_time, row.duration_minutes, coverMemberId)
+        DB.prepare('INSERT INTO breaks (work_block_id, shift_id, start_time, duration_minutes, cover_member_id) VALUES (?, ?, ?, ?, ?)')
+          .bind(block.id, row.shift_id, row.start_time, row.duration_minutes, coverMemberId)
       );
       plannedBreaks.push({ ...row, cover_member_id: coverMemberId });
     }
@@ -174,13 +145,8 @@ export const POST: APIRoute = async ({ request }) => {
     await DB.batch(statements);
   }
 
-  const missingCount = plannedBreaks.filter((row) => {
-    const offShift = planner.shifts.find((shift) => shift.id === row.shift_id);
-    return offShift?.status_key === 'working' && row.cover_member_id == null;
-  }).length;
-
+  const missingCount = plannedBreaks.filter((row) => row.cover_member_id == null).length;
   const tail = missingCount > 0 ? ' (some missing cover)' : '';
   const label = mode === 'overwrite' ? 'Breaks generated (overwrite)' : 'Breaks generated (missing only)';
-
   return redirectWithMessage(returnTo, { notice: `${label}${tail}` });
 };

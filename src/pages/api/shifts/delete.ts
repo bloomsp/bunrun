@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
+import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -15,7 +16,12 @@ export const POST: APIRoute = async ({ request }) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
 
   const DB = await getDB();
+  const shift = (await DB.prepare('SELECT schedule_id, member_id FROM shifts WHERE id=?').bind(shiftId).first()) as { schedule_id: number; member_id: number } | null;
   await DB.prepare('DELETE FROM shifts WHERE id=?').bind(shiftId).run();
+  if (shift?.schedule_id) {
+    await recomputeWorkBlocksForSchedule(DB, shift.schedule_id);
+    await clearMemberBreakPlanForSchedule(DB, shift.schedule_id, shift.member_id);
+  }
 
-  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift deleted' });
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift deleted. Break plan cleared for that member.' });
 };

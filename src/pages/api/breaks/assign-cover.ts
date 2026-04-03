@@ -66,7 +66,7 @@ export const POST: APIRoute = async ({ request }) => {
       preferredRankByShiftId
     });
     const breaks = (await DB.prepare(
-      `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
               s.member_id AS off_member_id, s.home_area_key AS off_area_key
        FROM breaks b
        JOIN shifts s ON s.id = b.shift_id

@@ -13,11 +13,13 @@ export type PlannerShift = {
 
 export type PlannerBreak = {
   id: number;
+  work_block_id: number | null;
   shift_id: number;
   start_time: string;
   duration_minutes: number;
   cover_member_id: number | null;
   off_member_id: number;
+  off_shift_id?: number;
   off_area_key: string;
 };
 

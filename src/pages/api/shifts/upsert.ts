@@ -5,6 +5,7 @@ import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 import { findOverlappingShift } from '../../../lib/shifts';
 import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
+import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -78,5 +79,8 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(scheduleId, memberId, homeAreaKey, statusKey, shiftRole, startTime, endTime, shiftMinutes)
     .run();
 
-  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added' });
+  await recomputeWorkBlocksForSchedule(DB, scheduleId);
+  await clearMemberBreakPlanForSchedule(DB, scheduleId, memberId);
+
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added. Break plan cleared for that member.' });
 };

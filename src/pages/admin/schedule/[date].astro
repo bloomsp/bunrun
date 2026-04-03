@@ -15,6 +15,7 @@ import {
   listEligibleCoverOptions,
   type PlannerBreak
 } from '../../../lib/break-planner';
+import { activeShiftAtTime } from '../../../lib/work-blocks';
 import Runsheet from '../../../components/Runsheet.astro';
 
 const guard = requireRole(Astro.request, 'admin');
@@ -37,6 +38,7 @@ type Area = { key: string; label: string; min_staff?: number };
 
 type ShiftRow = {
   id: number;
+  work_block_id: number | null;
   member_id: number;
   name: string;
   home_area_key: string;
@@ -49,10 +51,21 @@ type ShiftRow = {
 
 type BreakRow = {
   id: number;
+  work_block_id: number | null;
   shift_id: number;
   start_time: string;
   duration_minutes: number;
   cover_member_id: number | null;
+};
+
+type WorkBlockRow = {
+  id: number;
+  schedule_id: number;
+  member_id: number;
+  member_name: string;
+  start_time: string;
+  end_time: string;
+  total_minutes: number;
 };
 
 type Status = { key: string; label: string; blocks_coverage: number };
@@ -76,6 +89,7 @@ type ShiftView = ShiftRow & {
 
 type BreakListRow = {
   id: number;
+  work_block_id: number | null;
   start_time: string;
   duration_minutes: number;
   off_member_name: string;
@@ -95,7 +109,7 @@ const schedule = (await DB.prepare('SELECT id, date FROM schedules WHERE date=?'
 const scheduleId = schedule.id as number;
 
 const shifts = (await DB.prepare(
-  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
+  `SELECT s.id, s.work_block_id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
    FROM shifts s
    JOIN members m ON m.id = s.member_id
    WHERE s.schedule_id=?
@@ -103,18 +117,33 @@ const shifts = (await DB.prepare(
 ).bind(scheduleId).all()).results as ShiftRow[];
 
 const breaks = (await DB.prepare(
-  `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id
+  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id
    FROM breaks b
    JOIN shifts s ON s.id = b.shift_id
    WHERE s.schedule_id=?
    ORDER BY b.start_time ASC`
 ).bind(scheduleId).all()).results as BreakRow[];
 
+const workBlocks = (await DB.prepare(
+  `SELECT wb.id, wb.schedule_id, wb.member_id, m.name AS member_name, wb.start_time, wb.end_time, wb.total_minutes
+   FROM work_blocks wb
+   JOIN members m ON m.id = wb.member_id
+   WHERE wb.schedule_id=?
+   ORDER BY wb.start_time ASC, m.name COLLATE NOCASE ASC`
+).bind(scheduleId).all()).results as WorkBlockRow[];
+
 const breaksByShift = new Map<number, BreakRow[]>();
 for (const b of breaks) {
   const arr = breaksByShift.get(b.shift_id) ?? [];
   arr.push(b);
   breaksByShift.set(b.shift_id, arr);
+}
+const breaksByWorkBlock = new Map<number, BreakRow[]>();
+for (const b of breaks) {
+  if (b.work_block_id == null) continue;
+  const arr = breaksByWorkBlock.get(b.work_block_id) ?? [];
+  arr.push(b);
+  breaksByWorkBlock.set(b.work_block_id, arr);
 }
 
 const members = (await DB.prepare(
@@ -146,6 +175,7 @@ const memberById = new Map(members.map((m) => [m.id, m]));
 const areaByKey = new Map(areas.map((a) => [a.key, a]));
 const statusByKey = new Map(statuses.map((s) => [s.key, s]));
 const shiftById = new Map(shifts.map((s) => [s.id, s]));
+const workBlockById = new Map(workBlocks.map((block) => [block.id, block]));
 const preferredCovererIdsByShift = new Map<number, number[]>();
 const preferredCovererNamesByShift = new Map<number, string[]>();
 const preferredRankByShiftId = new Map<number, Map<number, number>>();
@@ -164,8 +194,8 @@ for (const [shiftId, ids] of preferredCovererIdsByShift.entries()) {
 const op = operatingHoursFor(date);
 const areaMinByKey = new Map(areas.map((a: any) => [a.key, Number((a as any).min_staff ?? 0)]));
 const workingShifts = shifts.filter((s) => s.status_key === 'working');
-const workingShiftIds = new Set(workingShifts.map((s) => s.id));
-const uncoveredBreaks = breaks.filter((b) => workingShiftIds.has(b.shift_id) && b.cover_member_id == null);
+const workingWorkBlockIds = new Set(workBlocks.map((block) => block.id));
+const uncoveredBreaks = breaks.filter((b) => (b.work_block_id != null ? workingWorkBlockIds.has(b.work_block_id) : true) && b.cover_member_id == null);
 
 // base working counts per area
 const shiftViews = shifts.map((s) => {
@@ -185,38 +215,24 @@ const shiftViews = shifts.map((s) => {
   } satisfies ShiftView;
 });
 const shiftViewById = new Map(shiftViews.map((s) => [s.id, s]));
-const shiftViewsByArea = new Map<string, ShiftView[]>();
-const workingShiftViewsByArea = new Map<string, ShiftView[]>();
+const shiftViewsByWorkBlock = new Map<number, ShiftView[]>();
 for (const shift of shiftViews) {
-  const allAreaShifts = shiftViewsByArea.get(shift.home_area_key) ?? [];
-  allAreaShifts.push(shift);
-  shiftViewsByArea.set(shift.home_area_key, allAreaShifts);
-
-  if (shift.status_key === 'working') {
-    const workingAreaShifts = workingShiftViewsByArea.get(shift.home_area_key) ?? [];
-    workingAreaShifts.push(shift);
-    workingShiftViewsByArea.set(shift.home_area_key, workingAreaShifts);
-  }
+  if (shift.work_block_id == null) continue;
+  const arr = shiftViewsByWorkBlock.get(shift.work_block_id) ?? [];
+  arr.push(shift);
+  shiftViewsByWorkBlock.set(shift.work_block_id, arr);
 }
-const breakAreaKeysFromBreaks = new Set(
-  breaks
-    .map((breakRow) => shiftById.get(breakRow.shift_id)?.home_area_key)
-    .filter((areaKey): areaKey is string => Boolean(areaKey))
-);
-const breakPlanningAreas = areas.filter((area) =>
-  (workingShiftViewsByArea.get(area.key)?.length ?? 0) > 0 || breakAreaKeysFromBreaks.has(area.key)
-);
-const requestedBreakAreaKey = Astro.url.searchParams.get('area') ?? '';
-const selectedBreakAreaKey = showBreakPlanning
-  ? (breakPlanningAreas.some((area) => area.key === requestedBreakAreaKey)
-      ? requestedBreakAreaKey
-      : (breakPlanningAreas[0]?.key ?? ''))
-  : '';
-const breakPanelUrl = selectedBreakAreaKey
-  ? `${breakPanelBaseUrl}&area=${selectedBreakAreaKey}#breaks`
-  : `${breakPanelBaseUrl}#breaks`;
-const breakPlanningShiftViews = selectedBreakAreaKey ? (workingShiftViewsByArea.get(selectedBreakAreaKey) ?? []) : [];
-const breakPlanningShiftIds = new Set(breakPlanningShiftViews.map((shift) => shift.id));
+for (const arr of shiftViewsByWorkBlock.values()) {
+  arr.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
+}
+const breakPanelUrl = `${breakPanelBaseUrl}#breaks`;
+const breakPlanningBlocks = workBlocks
+  .map((block) => ({
+    ...block,
+    shifts: shiftViewsByWorkBlock.get(block.id) ?? []
+  }))
+  .filter((block) => block.shifts.length > 0);
+const breakPlanningBlockIds = new Set(breakPlanningBlocks.map((block) => block.id));
 const planner = buildPlannerContext({
   shifts: shifts.map((shift) => ({
     id: shift.id,
@@ -240,18 +256,20 @@ const plannerBreaks: PlannerBreak[] = breaks.flatMap((b) => {
   if (!offShift) return [];
   return [{
     id: b.id,
+    work_block_id: b.work_block_id,
     shift_id: b.shift_id,
     start_time: b.start_time,
     duration_minutes: Number(b.duration_minutes),
     cover_member_id: b.cover_member_id,
     off_member_id: offShift.member_id,
+    off_shift_id: offShift.id,
     off_area_key: offShift.home_area_key
   }];
 });
-const plannedBreakMinutesByShift = new Map<number, number>();
-for (const [shiftId, rows] of breaksByShift.entries()) {
-  plannedBreakMinutesByShift.set(
-    shiftId,
+const plannedBreakMinutesByWorkBlock = new Map<number, number>();
+for (const [workBlockId, rows] of breaksByWorkBlock.entries()) {
+  plannedBreakMinutesByWorkBlock.set(
+    workBlockId,
     rows.reduce((sum, row) => sum + Number(row.duration_minutes), 0)
   );
 }
@@ -259,7 +277,7 @@ for (const [shiftId, rows] of breaksByShift.entries()) {
 const invalidCoverBreaks: { id: number; reason: string }[] = [];
 if (showBreakPlanning) {
   for (const b of plannerBreaks) {
-    if (!breakPlanningShiftIds.has(b.shift_id)) continue;
+    if (b.work_block_id == null || !breakPlanningBlockIds.has(b.work_block_id)) continue;
     if (b.cover_member_id == null) continue;
     if (!isCoverAssignmentValid(planner, plannerBreaks, b, b.cover_member_id)) {
       invalidCoverBreaks.push({ id: b.id, reason: 'Cover assignment needs review' });
@@ -278,6 +296,7 @@ const chronologicalBreakRows = plannerBreaks
       : null;
     return {
       id: row.id,
+      work_block_id: row.work_block_id,
       start_time: row.start_time,
       duration_minutes: row.duration_minutes,
       off_member_name: offMember?.name ?? 'Unknown member',
@@ -364,9 +383,11 @@ function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
 
 const coverCandidatesByBreakId = new Map<number, Member[]>();
 if (showBreakPlanning) {
-  for (const shift of breakPlanningShiftViews) {
-    for (const b of breaksByShift.get(shift.id) ?? []) {
-      coverCandidatesByBreakId.set(b.id, coverCandidatesForBreak(shiftViewById.get(shift.id) ?? (shift as ShiftView), b));
+  for (const block of breakPlanningBlocks) {
+    for (const b of breaksByWorkBlock.get(block.id) ?? []) {
+      const offShift = shiftViewById.get(b.shift_id);
+      if (!offShift) continue;
+      coverCandidatesByBreakId.set(b.id, coverCandidatesForBreak(offShift, b));
     }
   }
 }
@@ -810,29 +831,6 @@ if (showBreakPlanning) {
         )}
       </div>
 
-      {showBreakPlanning && breakPlanningAreas.length > 0 && (
-        <div class="mt-4 overflow-x-auto">
-          <div class="flex min-w-max gap-2">
-            {breakPlanningAreas.map((area) => {
-              const active = area.key === selectedBreakAreaKey;
-              return (
-                <a
-                  class:list={[
-                    'rounded-full border px-3 py-1.5 text-sm transition',
-                    active
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  ]}
-                  href={`/admin/schedule/${date}?panel=breaks&area=${area.key}#breaks`}
-                >
-                  {area.label}
-                </a>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {!showBreakPlanning && (
         <div class="mt-4 grid gap-3 sm:grid-cols-3">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
@@ -852,9 +850,9 @@ if (showBreakPlanning) {
 
       {showBreakPlanning && (
         <>
-          {breakPlanningAreas.length === 0 && (
+          {breakPlanningBlocks.length === 0 && (
             <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              No working shifts are currently available for break planning on this day. If this looks wrong, the roster may have been left in a partial state by an interrupted request.
+              No continuous working blocks are currently available for break planning on this day. If this looks wrong, the roster may need its work blocks recomputed.
             </div>
           )}
           <div class="mt-4 flex flex-wrap gap-2">
@@ -893,147 +891,133 @@ if (showBreakPlanning) {
             </form>
           </div>
           <div class="mt-6 space-y-8">
-            {breakPlanningAreas
-              .filter((area) => area.key === selectedBreakAreaKey)
-              .map((area) => {
-                const areaShifts = workingShiftViewsByArea.get(area.key) ?? [];
-                const areaBreakCount = breaks.filter((breakRow) => shiftById.get(breakRow.shift_id)?.home_area_key === area.key).length;
+            {breakPlanningBlocks.map((block) => {
+              const rows = breaksByWorkBlock.get(block.id) ?? [];
+              const used = plannedBreakMinutesByWorkBlock.get(block.id) ?? 0;
+              const allowance = breakAllowanceMinutes(block.total_minutes);
+              const shiftSummary = block.shifts.map((shift) => `${shift.area_label} ${shift.start_time}-${shift.end_time ?? '—'}`).join(' · ');
 
-                if (areaShifts.length === 0) {
-                  return (
-                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                      {area.label} has {areaBreakCount} planned break{areaBreakCount === 1 ? '' : 's'}, but no working shifts are currently attached to this area. This usually means a previous break-planning request was interrupted before the roster data and break data finished updating.
+              return (
+                <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div class="font-semibold">{block.member_name}</div>
+                      <div class="text-sm text-slate-600">
+                        {block.start_time}–{block.end_time} · block {formatDurationMinutes(block.total_minutes)} · allowance {allowance}m · planned {used}m
+                      </div>
+                      <div class="mt-1 text-xs text-slate-500">{shiftSummary}</div>
                     </div>
-                  );
-                }
-
-                return (
-                  <div class="space-y-3">
-                    <div class="text-sm font-semibold text-slate-700">{area.label}</div>
-
-                    {areaShifts.map((s) => {
-                      const allowance = breakAllowanceMinutes(s.computed_minutes);
-                      const rows = breaksByShift.get(s.id) ?? [];
-                      const used = plannedBreakMinutesByShift.get(s.id) ?? 0;
-
-                      return (
-                        <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <form method="post" action="/api/breaks/autogen">
-                            <input type="hidden" name="date" value={date} />
-                            <input type="hidden" name="shiftId" value={s.id} />
-                            <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                            <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">
-                              Auto-generate
-                            </button>
-                          </form>
-                          <div>
-                            <div class="font-semibold">{s.name}</div>
-                            <div class="text-sm text-slate-600">
-                              {s.start_time}–{s.end_time ?? '—'} · shift {formatDurationMinutes(s.computed_minutes)} · allowance {allowance}m · planned {used}m
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="mt-4 overflow-x-auto">
-                          <table class="w-full min-w-[780px] border-separate border-spacing-y-2 text-sm">
-                            <thead>
-                              <tr class="text-left text-slate-600">
-                                <th class="px-3">Start</th>
-                                <th class="px-3">Duration</th>
-                                <th class="px-3">Cover</th>
-                                <th class="px-3"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {rows.map((b) => (
-                                <tr
-                                  class={
-                                    b.cover_member_id == null
-                                      ? 'bg-rose-50'
-                                      : invalidReasonByBreakId.has(b.id)
-                                        ? 'bg-amber-50'
-                                        : 'bg-white'
-                                  }
-                                >
-                                  <td class="px-3 py-3">
-                                    {b.start_time}
-                                    {invalidReasonByBreakId.has(b.id) && (
-                                      <div class="mt-1 text-xs text-amber-900">{invalidReasonByBreakId.get(b.id)}</div>
-                                    )}
-                                  </td>
-                                  <td class="px-3 py-3">{b.duration_minutes}m</td>
-                                  <td class="px-3 py-3">
-                                    <form method="post" action="/api/breaks/assign-cover" class="flex items-center gap-2">
-                                      <input type="hidden" name="date" value={date} />
-                                      <input type="hidden" name="breakId" value={b.id} />
-                                      <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                                      <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
-                                        <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
-                                        {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
-                                          <option value={cs.id} selected={b.cover_member_id === cs.id}>
-                                            {cs.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
-                                        Set
-                                      </button>
-                                    </form>
-                                  </td>
-                                  <td class="px-3 py-3">
-                                    <form method="post" action="/api/breaks/delete" onsubmit="return confirm('Delete this break?')">
-                                      <input type="hidden" name="date" value={date} />
-                                      <input type="hidden" name="breakId" value={b.id} />
-                                      <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
-                                        Delete
-                                      </button>
-                                    </form>
-                                  </td>
-                                </tr>
-                              ))}
-
-                              <tr class="bg-white">
-                                <td class="px-3 py-3" colspan="4">
-                                  <form method="post" action="/api/breaks/add" class="flex flex-wrap items-center gap-2">
-                                    <input type="hidden" name="date" value={date} />
-                                    <input type="hidden" name="shiftId" value={s.id} />
-                                    <input type="hidden" name="returnTo" value={breakPanelUrl} />
-
-                                    <div class="mr-2 text-sm font-medium text-slate-700">Add break</div>
-
-                                    <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="hh" min="0" max="23" placeholder="10" required />
-                                    <span class="text-slate-600">:</span>
-                                    <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="mm" min="0" max="59" value="00" required />
-
-                                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="duration">
-                                      {[15, 30, 45, 60].map((d) => (
-                                        <option value={d}>{d}m</option>
-                                      ))}
-                                    </select>
-
-                                    <button class="rounded-lg bg-emerald-700 px-3 py-2 font-medium text-white hover:bg-emerald-800" type="submit">
-                                      Add
-                                    </button>
-                                  </form>
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {used > allowance && (
-                          <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-                            Planned break time exceeds allowance.
-                          </div>
-                        )}
-                        </section>
-                      );
-                    })}
+                    <form method="post" action="/api/breaks/autogen">
+                      <input type="hidden" name="date" value={date} />
+                      <input type="hidden" name="workBlockId" value={block.id} />
+                      <input type="hidden" name="returnTo" value={breakPanelUrl} />
+                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">
+                        Auto-generate
+                      </button>
+                    </form>
                   </div>
-                );
-              })}
+
+                  <div class="mt-4 overflow-x-auto">
+                    <table class="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm">
+                      <thead>
+                        <tr class="text-left text-slate-600">
+                          <th class="px-3">Start</th>
+                          <th class="px-3">Area at break</th>
+                          <th class="px-3">Duration</th>
+                          <th class="px-3">Cover</th>
+                          <th class="px-3"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((b) => {
+                          const activeShift = shiftViewById.get(b.shift_id);
+                          return (
+                            <tr
+                              class={
+                                b.cover_member_id == null
+                                  ? 'bg-rose-50'
+                                  : invalidReasonByBreakId.has(b.id)
+                                    ? 'bg-amber-50'
+                                    : 'bg-white'
+                              }
+                            >
+                              <td class="px-3 py-3">
+                                {b.start_time}
+                                {invalidReasonByBreakId.has(b.id) && (
+                                  <div class="mt-1 text-xs text-amber-900">{invalidReasonByBreakId.get(b.id)}</div>
+                                )}
+                              </td>
+                              <td class="px-3 py-3">{activeShift?.area_label ?? '—'}</td>
+                              <td class="px-3 py-3">{b.duration_minutes}m</td>
+                              <td class="px-3 py-3">
+                                <form method="post" action="/api/breaks/assign-cover" class="flex items-center gap-2">
+                                  <input type="hidden" name="date" value={date} />
+                                  <input type="hidden" name="breakId" value={b.id} />
+                                  <input type="hidden" name="returnTo" value={breakPanelUrl} />
+                                  <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
+                                    <option value="" selected={b.cover_member_id == null}>— missing cover —</option>
+                                    {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
+                                      <option value={cs.id} selected={b.cover_member_id === cs.id}>
+                                        {cs.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
+                                    Set
+                                  </button>
+                                </form>
+                              </td>
+                              <td class="px-3 py-3">
+                                <form method="post" action="/api/breaks/delete" onsubmit="return confirm('Delete this break?')">
+                                  <input type="hidden" name="date" value={date} />
+                                  <input type="hidden" name="breakId" value={b.id} />
+                                  <input type="hidden" name="returnTo" value={breakPanelUrl} />
+                                  <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
+                                    Delete
+                                  </button>
+                                </form>
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        <tr class="bg-white">
+                          <td class="px-3 py-3" colspan="5">
+                            <form method="post" action="/api/breaks/add" class="flex flex-wrap items-center gap-2">
+                              <input type="hidden" name="date" value={date} />
+                              <input type="hidden" name="workBlockId" value={block.id} />
+                              <input type="hidden" name="returnTo" value={breakPanelUrl} />
+
+                              <div class="mr-2 text-sm font-medium text-slate-700">Add break</div>
+
+                              <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="hh" min="0" max="23" placeholder="10" required />
+                              <span class="text-slate-600">:</span>
+                              <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="mm" min="0" max="59" value="00" required />
+
+                              <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="duration">
+                                {[15, 30, 45, 60].map((d) => (
+                                  <option value={d}>{d}m</option>
+                                ))}
+                              </select>
+
+                              <button class="rounded-lg bg-emerald-700 px-3 py-2 font-medium text-white hover:bg-emerald-800" type="submit">
+                                Add
+                              </button>
+                            </form>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {used > allowance && (
+                    <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                      Planned break time exceeds allowance for this continuous work block.
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         </>
       )}

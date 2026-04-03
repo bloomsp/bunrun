@@ -5,6 +5,7 @@ import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
 import { findOverlappingShift, shiftRange } from '../../../lib/shifts';
 import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
+import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -35,7 +36,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const DB = await getDB();
 
-  const current = (await DB.prepare('SELECT schedule_id, member_id, start_time, end_time FROM shifts WHERE id=?').bind(shiftId).first()) as any;
+  const current = (await DB.prepare('SELECT schedule_id, member_id, start_time, end_time, work_block_id FROM shifts WHERE id=?').bind(shiftId).first()) as any;
   if (!current) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift not found' });
   const permissionError = await assertMemberCanWorkArea(DB, current.member_id, homeAreaKey);
   if (permissionError) {
@@ -75,6 +76,9 @@ export const POST: APIRoute = async ({ request }) => {
     .bind(homeAreaKey, statusKey, shiftRole, startTime, endTime, shiftMinutes, shiftId)
     .run();
 
+  await recomputeWorkBlocksForSchedule(DB, current.schedule_id);
+  await clearMemberBreakPlanForSchedule(DB, current.schedule_id, current.member_id);
+
   await DB.prepare('DELETE FROM shift_cover_priorities WHERE shift_id=?').bind(shiftId).run();
   for (const [index, memberId] of uniquePreferredCovererIds.entries()) {
     await DB.prepare(
@@ -85,9 +89,6 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (statusKey === 'sick') {
-    // Delete breaks for this shift (requirement A)
-    await DB.prepare('DELETE FROM breaks WHERE shift_id=?').bind(shiftId).run();
-
     // Clear any cover assignments that overlap the now-sick shift window.
     const sickRange = shiftRange({ start_time: startTime, end_time: endTime });
     if (sickRange) {
@@ -114,6 +115,6 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   return redirectWithMessage(`/admin/schedule/${date}#shifts`, {
-    notice: statusKey === 'sick' ? 'Shift updated (Sick applied)' : 'Shift updated'
+    notice: statusKey === 'sick' ? 'Shift updated (Sick applied). Break plan cleared for that member.' : 'Shift updated. Break plan cleared for that member.'
   });
 };

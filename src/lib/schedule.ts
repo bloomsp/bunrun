@@ -1,3 +1,4 @@
+import { recomputeWorkBlocksForSchedule } from './work-blocks';
 const BRISBANE_OFFSET = '+10:00';
 
 type ShiftCopyRow = {
@@ -164,6 +165,8 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
       .run();
     copiedBreaks += 1;
   }
+
+  await recomputeWorkBlocksForSchedule(DB, targetScheduleId);
 
   return { shiftCount: sourceShifts.length, breakCount: copiedBreaks };
 }
