@@ -1,8 +1,6 @@
-function init() {
-  const form = document.querySelector('form[action="/api/shifts/upsert"]');
+function initShiftForm(form) {
   if (!form) return;
 
-  // Default area selection when member is chosen
   const memberSel = form.querySelector('select[data-bunrun-member]');
   const areaSel = form.querySelector('select[data-bunrun-area]');
   if (memberSel && areaSel) {
@@ -13,7 +11,6 @@ function init() {
     });
   }
 
-  // Focus Add Shift after leaving end time
   const endTime = form.querySelector('input[data-bunrun-endtime]');
   const addBtn = form.querySelector('[data-bunrun-add-shift]');
   if (endTime && addBtn) {
@@ -22,8 +19,7 @@ function init() {
     });
   }
 
-  // Client-side validation + computed helper line
-  const computedEl = document.getElementById('shiftComputed');
+  const computedEl = form.querySelector('[data-shift-computed]') || form.querySelector('#shiftComputed');
 
   const parse = (hhmm) => {
     const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
@@ -38,10 +34,10 @@ function init() {
   };
 
   const showMessage = (msg, kind) => {
-    let warnEl = document.getElementById('shiftWarn');
+    let warnEl = form.querySelector('[data-shiftWarn]');
     if (!warnEl) {
       warnEl = document.createElement('div');
-      warnEl.id = 'shiftWarn';
+      warnEl.setAttribute('data-shiftWarn', '');
       warnEl.className = 'mt-3 text-sm';
       form.appendChild(warnEl);
     }
@@ -111,6 +107,10 @@ function init() {
   });
 
   validate();
+}
+
+function init() {
+  document.querySelectorAll('form[data-shift-form]').forEach((form) => initShiftForm(form));
 }
 
 if (document.readyState === 'loading') {

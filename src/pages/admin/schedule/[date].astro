@@ -288,7 +288,6 @@ const chronologicalBreakRows = plannerBreaks
   })
   .sort((a, b) => (parseHHMM(a.start_time) ?? 0) - (parseHHMM(b.start_time) ?? 0) || a.off_member_name.localeCompare(b.off_member_name));
 
-const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 const notice = Astro.url.searchParams.get('notice');
 const errorMsg = Astro.url.searchParams.get('error');
 const weekStart = startOfWeek(date);
@@ -494,98 +493,16 @@ if (showBreakPlanning) {
     </div>
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 class="text-lg font-medium">Add shift</h2>
-      <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/api/shifts/upsert">
-        <input type="hidden" name="date" value={date} />
-
-        <label class="block sm:col-span-2">
-          <div class="text-sm font-medium text-slate-800">Member</div>
-          <select
-            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            name="memberId"
-            required
-            data-bunrun-member
-          >
-            <option value="" selected>Select…</option>
-            {members.map((m) => (
-                <option value={m.id} data-default-area={m.default_area_key ?? ''}>
-                  {m.name}
-                </option>
-              ))}
-          </select>
-        </label>
-
-        <label class="block">
-          <div class="text-sm font-medium text-slate-800">Area</div>
-          <select
-            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            name="homeAreaKey"
-            required
-            data-bunrun-area
-          >
-            {areas.map((a) => (
-              <option value={a.key}>{a.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label class="block">
-          <div class="text-sm font-medium text-slate-800">Status</div>
-          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
-            {statuses.map((s) => (
-              <option value={s.key} selected={s.key === 'working'}>{s.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label class="block">
-          <div class="text-sm font-medium text-slate-800">Role</div>
-          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
-            <option value="normal" selected>Normal</option>
-            <option value="floater">Floater</option>
-          </select>
-          <div class="mt-1 text-xs text-slate-500">Floaters are prioritised to cover other members where possible.</div>
-        </label>
-
-        <label class="block">
-          <div class="text-sm font-medium text-slate-800">Start</div>
-          <input
-            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            type="time"
-            name="startTime"
-            value="06:00"
-            required
-            step="60"
-          />
-        </label>
-
-        <label class="block">
-          <div class="text-sm font-medium text-slate-800">End</div>
-          <input
-            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            type="time"
-            name="endTime"
-            value="15:00"
-            required
-            step="60"
-            data-bunrun-endtime
-          />
-        </label>
-
-        <div class="sm:col-span-6">
-          <button
-            class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800"
-            type="submit"
-            data-bunrun-add-shift
-          >
-            Add shift
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 class="text-lg font-medium">Shifts</h2>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="text-lg font-medium">Shifts</h2>
+        <button
+          class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+          type="button"
+          data-open-add-shift
+        >
+          Add shift
+        </button>
+      </div>
       <div class="mt-4 overflow-x-auto">
         <table class="w-full min-w-[980px] border-separate border-spacing-y-2 text-sm">
           <thead>
@@ -603,93 +520,6 @@ if (showBreakPlanning) {
           </thead>
           <tbody>
             {shiftViews.map((s) => {
-              const isEditing = editShiftId === s.id;
-
-              if (isEditing) {
-                return (
-                  <tr class="bg-slate-50">
-                    <td class="px-3 py-3 font-medium">{s.name}</td>
-                    <td class="px-3 py-3" colspan="8">
-                      <form class="grid gap-3 sm:grid-cols-6" method="post" action="/api/shifts/update">
-                        <input type="hidden" name="date" value={date} />
-                        <input type="hidden" name="shiftId" value={s.id} />
-
-                        <label class="block sm:col-span-2">
-                          <div class="text-xs font-medium text-slate-700">Area</div>
-                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
-                            {areas.map((a) => (
-                              <option value={a.key} selected={a.key === s.home_area_key}>{a.label}</option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <label class="block">
-                          <div class="text-xs font-medium text-slate-700">Status</div>
-                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
-                            {statuses.map((st) => (
-                              <option value={st.key} selected={st.key === s.status_key}>{st.label}</option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <label class="block">
-                          <div class="text-xs font-medium text-slate-700">Role</div>
-                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
-                            <option value="normal" selected={s.shift_role !== 'floater'}>Normal</option>
-                            <option value="floater" selected={s.shift_role === 'floater'}>Floater</option>
-                          </select>
-                        </label>
-
-                        <label class="block">
-                          <div class="text-xs font-medium text-slate-700">Start</div>
-                          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value={s.start_time} required step="60" />
-                        </label>
-
-                        <label class="block">
-                          <div class="text-xs font-medium text-slate-700">End</div>
-                          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value={s.end_time ?? ''} required step="60" />
-                        </label>
-
-                        <div class="sm:col-span-6">
-                          <div class="text-xs font-medium text-slate-700">Preferred coverers</div>
-                          <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                            {Array.from({ length: 4 }, (_, index) => {
-                              const selectedId = preferredCovererIdsByShift.get(s.id)?.[index] ?? 0;
-                              return (
-                                <label class="block">
-                                  <div class="text-xs text-slate-500">Priority {index + 1}</div>
-                                  <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="preferredCovererIds">
-                                    <option value="">— none —</option>
-                                    {members
-                                      .filter((member) => member.id !== s.member_id)
-                                      .map((member) => (
-                                        <option value={member.id} selected={selectedId === member.id}>{member.name}</option>
-                                      ))}
-                                  </select>
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <div class="mt-1 text-xs text-slate-500">The planner tries these members first, in order, when they are valid for the break.</div>
-                        </div>
-
-                        <div class="sm:col-span-2 flex items-end gap-2">
-                          <button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                            Save
-                          </button>
-                          <a class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${date}`}>
-                            Cancel
-                          </a>
-                        </div>
-                      </form>
-                      <div class="mt-2 text-xs text-slate-600">
-                        Note: setting status to <b>Sick</b> removes their breaks and clears any cover assignments where they were covering others.
-                      </div>
-                    </td>
-                  </tr>
-                );
-              }
-
               return (
                 <tr class="bg-slate-50">
                   <td class="px-3 py-3 font-medium">{s.name}</td>
@@ -723,9 +553,22 @@ if (showBreakPlanning) {
                   </td>
                   <td class="px-3 py-3">
                     <div class="flex items-center gap-2">
-                      <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" href={`/admin/schedule/${date}?editShift=${s.id}`}>
+                      <button
+                        class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100"
+                        type="button"
+                        data-open-edit-shift
+                        data-shift-id={s.id}
+                        data-member-id={s.member_id}
+                        data-member-name={s.name}
+                        data-home-area-key={s.home_area_key}
+                        data-status-key={s.status_key}
+                        data-shift-role={s.shift_role}
+                        data-start-time={s.start_time}
+                        data-end-time={s.end_time ?? ''}
+                        data-preferred-coverers={(preferredCovererIdsByShift.get(s.id) ?? []).join(',')}
+                      >
                         Edit
-                      </a>
+                      </button>
                       <form method="post" action="/api/shifts/delete" onsubmit="return confirm('Delete this shift?')">
                         <input type="hidden" name="shiftId" value={s.id} />
                         <input type="hidden" name="date" value={date} />
@@ -744,6 +587,155 @@ if (showBreakPlanning) {
 
       {shifts.length === 0 && <div class="mt-4 text-sm text-slate-600">No shifts yet.</div>}
     </div>
+
+    <dialog class="w-full max-w-4xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-shift-dialog="add">
+      <form class="p-6" method="post" action="/api/shifts/upsert" data-shift-form>
+        <input type="hidden" name="date" value={date} />
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-xl font-semibold">Add shift</h2>
+            <p class="mt-1 text-sm text-slate-600">Create a shift without leaving the schedule page.</p>
+          </div>
+          <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
+        </div>
+
+        <div class="mt-5 grid gap-4 sm:grid-cols-6">
+          <label class="block sm:col-span-2">
+            <div class="text-sm font-medium text-slate-800">Member</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="memberId" required data-bunrun-member>
+              <option value="" selected>Select…</option>
+              {members.map((m) => (
+                <option value={m.id} data-default-area={m.default_area_key ?? ''}>{m.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Area</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required data-bunrun-area>
+              {areas.map((a) => (
+                <option value={a.key}>{a.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Status</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
+              {statuses.map((s) => (
+                <option value={s.key} selected={s.key === 'working'}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Role</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+              <option value="normal" selected>Normal</option>
+              <option value="floater">Floater</option>
+            </select>
+            <div class="mt-1 text-xs text-slate-500">Floaters are prioritised to cover other members where possible.</div>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Start</div>
+            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value="06:00" required step="60" />
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">End</div>
+            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value="15:00" required step="60" data-bunrun-endtime />
+          </label>
+        </div>
+
+        <div id="shiftComputed" class="mt-4 text-sm text-slate-600"></div>
+
+        <div class="mt-6 flex justify-end gap-3">
+          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
+          <button class="rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800" type="submit" data-bunrun-add-shift>Add shift</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="w-full max-w-4xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-shift-dialog="edit">
+      <form class="p-6" method="post" action="/api/shifts/update" data-shift-form>
+        <input type="hidden" name="date" value={date} />
+        <input type="hidden" name="shiftId" />
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-xl font-semibold">Edit shift</h2>
+            <p class="mt-1 text-sm text-slate-600" data-edit-shift-member>Update shift details and preferred coverers.</p>
+          </div>
+          <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
+        </div>
+
+        <div class="mt-5 grid gap-4 sm:grid-cols-6">
+          <label class="block sm:col-span-2">
+            <div class="text-sm font-medium text-slate-800">Area</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
+              {areas.map((a) => (
+                <option value={a.key}>{a.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Status</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
+              {statuses.map((st) => (
+                <option value={st.key}>{st.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Role</div>
+            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+              <option value="normal">Normal</option>
+              <option value="floater">Floater</option>
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">Start</div>
+            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required step="60" />
+          </label>
+
+          <label class="block">
+            <div class="text-sm font-medium text-slate-800">End</div>
+            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" required step="60" data-bunrun-endtime />
+          </label>
+        </div>
+
+        <div class="mt-5">
+          <div class="text-sm font-medium text-slate-800">Preferred coverers</div>
+          <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => (
+              <label class="block">
+                <div class="text-xs text-slate-500">Priority {index + 1}</div>
+                <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="preferredCovererIds">
+                  <option value="">— none —</option>
+                  {members.map((member) => (
+                    <option value={member.id}>{member.name}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+          <div class="mt-1 text-xs text-slate-500">The planner tries these members first, in order, when they are valid for the break.</div>
+        </div>
+
+        <div class="mt-4 text-sm text-slate-600">
+          Note: setting status to <b>Sick</b> removes their breaks and clears any cover assignments where they were covering others.
+        </div>
+        <div data-shiftWarn class="mt-3 text-sm"></div>
+
+        <div class="mt-6 flex justify-end gap-3">
+          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
+          <button class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
@@ -1047,4 +1039,47 @@ if (showBreakPlanning) {
       )}
     </div>
   </div>
+  <script is:inline>
+    const shiftDialogs = {
+      add: document.querySelector('[data-shift-dialog="add"]'),
+      edit: document.querySelector('[data-shift-dialog="edit"]')
+    };
+
+    const showShiftDialog = (dialog) => dialog && typeof dialog.showModal === 'function' && dialog.showModal();
+    const closeShiftDialog = (dialog) => dialog && typeof dialog.close === 'function' && dialog.close();
+
+    document.querySelector('[data-open-add-shift]')?.addEventListener('click', () => showShiftDialog(shiftDialogs.add));
+
+    document.querySelectorAll('[data-close-shift-dialog]').forEach((button) => {
+      button.addEventListener('click', () => closeShiftDialog(button.closest('dialog')));
+    });
+
+    document.querySelectorAll('[data-open-edit-shift]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const dialog = shiftDialogs.edit;
+        if (!dialog) return;
+        const form = dialog.querySelector('form');
+        if (!form) return;
+        const memberId = button.dataset.memberId || '';
+
+        form.querySelector('input[name="shiftId"]').value = button.dataset.shiftId || '';
+        form.querySelector('select[name="homeAreaKey"]').value = button.dataset.homeAreaKey || '';
+        form.querySelector('select[name="statusKey"]').value = button.dataset.statusKey || 'working';
+        form.querySelector('select[name="shiftRole"]').value = button.dataset.shiftRole || 'normal';
+        form.querySelector('input[name="startTime"]').value = button.dataset.startTime || '';
+        form.querySelector('input[name="endTime"]').value = button.dataset.endTime || '';
+        dialog.querySelector('[data-edit-shift-member]').textContent = `Update ${button.dataset.memberName || 'this member'}'s shift details and preferred coverers.`;
+
+        const preferred = (button.dataset.preferredCoverers || '').split(',').filter(Boolean);
+        form.querySelectorAll('select[name="preferredCovererIds"]').forEach((select, index) => {
+          Array.from(select.options).forEach((option) => {
+            option.disabled = Boolean(memberId) && option.value === memberId;
+          });
+          select.value = preferred[index] || '';
+        });
+
+        showShiftDialog(dialog);
+      });
+    });
+  </script>
 </Layout>
