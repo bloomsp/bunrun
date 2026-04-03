@@ -8,23 +8,60 @@ import { getDB } from '../../lib/db';
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
 
-type Area = { key: string; label: string; min_staff: number };
+type Area = { key: string; label: string; min_staff: number; member_count: number; shift_count: number };
 
 const notice = Astro.url.searchParams.get('notice');
 const errorMsg = Astro.url.searchParams.get('error');
 
 const DB = await getDB();
-const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
+const areas = (await DB.prepare(
+  `SELECT
+      a.key,
+      a.label,
+      a.min_staff,
+      (
+        SELECT COUNT(DISTINCT member_id)
+        FROM (
+          SELECT id AS member_id FROM members WHERE default_area_key = a.key
+          UNION
+          SELECT member_id FROM member_area_permissions WHERE area_key = a.key
+        )
+      ) AS member_count,
+      (SELECT COUNT(*) FROM shifts WHERE home_area_key = a.key) AS shift_count
+   FROM areas a
+   ORDER BY a.label COLLATE NOCASE ASC`
+).all()).results.map((row: any) => ({
+  key: row.key as string,
+  label: row.label as string,
+  min_staff: Number(row.min_staff ?? 0),
+  member_count: Number(row.member_count ?? 0),
+  shift_count: Number(row.shift_count ?? 0)
+})) as Area[];
 ---
 
 <Layout title="Areas | Bunrun">
-  <div class="mx-auto max-w-4xl px-4 py-10">
-    <div class="flex items-center justify-between">
+  <div class="mx-auto max-w-[96rem] px-3 py-10">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight">Areas</h1>
-        <p class="mt-2 text-slate-700">Rename areas and set minimum staffing levels used by break planning.</p>
+        <p class="mt-2 text-slate-700">Add, modify, migrate, and remove areas used in staffing and break planning.</p>
       </div>
-      <a class="text-sm underline" href="/admin">Back</a>
+      <div class="flex flex-wrap items-center gap-3">
+        <button
+          class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+          type="button"
+          data-open-add-area
+        >
+          Add area
+        </button>
+        <button
+          class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+          type="button"
+          data-open-migrate-area
+        >
+          Migrate members
+        </button>
+      </div>
     </div>
 
     {errorMsg && (
@@ -41,28 +78,236 @@ const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER B
       </div>
     )}
 
-    <div class="mt-6 space-y-4">
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div class="grid grid-cols-[minmax(0,1.4fr)_120px_120px_auto] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
+        <div>Area</div>
+        <div>Min staff</div>
+        <div>Members</div>
+        <div class="text-right">Actions</div>
+      </div>
+
       {areas.map((area) => (
-        <form class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" method="post" action="/api/areas/update">
-          <input type="hidden" name="key" value={area.key} />
-          <div class="grid gap-4 sm:grid-cols-[1.4fr_0.8fr_auto]">
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Area name</div>
-              <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="label" value={area.label} required />
-            </label>
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Minimum staff</div>
-              <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="number" name="minStaff" min="0" max="99" value={area.min_staff} required />
-            </label>
-            <div class="flex items-end">
-              <button class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800" type="submit">
-                Save
-              </button>
-            </div>
+        <div class="grid grid-cols-[minmax(0,1.4fr)_120px_120px_auto] gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0">
+          <div>
+            <div class="font-medium text-slate-900">{area.label}</div>
+            <div class="mt-1 text-xs text-slate-500">Key: {area.key}</div>
+            {area.shift_count > 0 && (
+              <div class="mt-1 text-xs text-slate-500">{area.shift_count} recorded shift{area.shift_count === 1 ? '' : 's'}</div>
+            )}
           </div>
-          <div class="mt-2 text-xs text-slate-500">Key: {area.key}</div>
-        </form>
+          <div class="text-sm text-slate-700">{area.min_staff}</div>
+          <div class="text-sm text-slate-700">{area.member_count}</div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button
+              class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              type="button"
+              data-open-edit-area
+              data-key={area.key}
+              data-label={area.label}
+              data-min-staff={area.min_staff}
+            >
+              Modify
+            </button>
+            <button
+              class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+              type="button"
+              data-open-delete-area
+              data-key={area.key}
+              data-label={area.label}
+              data-member-count={area.member_count}
+              data-shift-count={area.shift_count}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
       ))}
     </div>
   </div>
+
+  <dialog class="w-full max-w-xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="add">
+    <form class="p-6" method="post" action="/api/areas/add">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-semibold">Add area</h2>
+          <p class="mt-1 text-sm text-slate-600">Create a new area and set its minimum staffing level.</p>
+        </div>
+        <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <label class="block sm:col-span-2">
+          <div class="text-sm font-medium text-slate-800">Area name</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="label" required />
+        </label>
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Area key</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="key" placeholder="Auto-generated if blank" />
+        </label>
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Minimum staff</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="number" name="minStaff" min="0" max="99" value="1" required />
+        </label>
+      </div>
+
+      <div class="mt-6 flex justify-end gap-3">
+        <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+        <button class="rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800" type="submit">Add area</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="w-full max-w-xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="edit">
+    <form class="p-6" method="post" action="/api/areas/update">
+      <input type="hidden" name="key" />
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-semibold">Modify area</h2>
+          <p class="mt-1 text-sm text-slate-600">Update the area name and minimum staffing level.</p>
+        </div>
+        <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <label class="block sm:col-span-2">
+          <div class="text-sm font-medium text-slate-800">Area name</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="label" required />
+        </label>
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Key</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-slate-500" name="keyDisplay" readonly />
+        </label>
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">Minimum staff</div>
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="number" name="minStaff" min="0" max="99" required />
+        </label>
+      </div>
+
+      <div class="mt-6 flex justify-end gap-3">
+        <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+        <button class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="w-full max-w-xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="migrate">
+    <form class="p-6" method="post" action="/api/areas/migrate">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-semibold">Migrate members and shifts</h2>
+          <p class="mt-1 text-sm text-slate-600">Move members’ defaults, permissions, and shift history from one area to another.</p>
+        </div>
+        <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+      </div>
+
+      <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">From area</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="fromKey" required>
+            <option value="">Select an area</option>
+            {areas.map((area) => (
+              <option value={area.key}>{area.label}</option>
+            ))}
+          </select>
+        </label>
+        <label class="block">
+          <div class="text-sm font-medium text-slate-800">To area</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="toKey" required>
+            <option value="">Select an area</option>
+            {areas.map((area) => (
+              <option value={area.key}>{area.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div class="mt-6 flex justify-end gap-3">
+        <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+        <button class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800" type="submit">Migrate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="w-full max-w-lg rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="delete">
+    <form class="p-6" method="post" action="/api/areas/delete">
+      <input type="hidden" name="key" />
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-semibold">Delete area</h2>
+          <p class="mt-1 text-sm text-slate-600" data-delete-copy>Delete this area?</p>
+        </div>
+        <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-dialog>Cancel</button>
+        <button class="rounded-lg bg-rose-700 px-4 py-2 font-medium text-white hover:bg-rose-800" type="submit">Delete area</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="w-full max-w-lg rounded-2xl border border-rose-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="blocked">
+    <div class="p-6">
+      <h2 class="text-xl font-semibold text-rose-900">Area cannot be deleted</h2>
+      <p class="mt-2 text-sm text-rose-800" data-blocked-copy></p>
+      <div class="mt-6 flex justify-end">
+        <button class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-rose-900 hover:bg-rose-50" type="button" data-close-dialog>Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script is:inline>
+    const dialogs = {
+      add: document.querySelector('[data-area-dialog="add"]'),
+      edit: document.querySelector('[data-area-dialog="edit"]'),
+      migrate: document.querySelector('[data-area-dialog="migrate"]'),
+      delete: document.querySelector('[data-area-dialog="delete"]'),
+      blocked: document.querySelector('[data-area-dialog="blocked"]')
+    };
+
+    const showDialog = (dialog) => dialog && typeof dialog.showModal === 'function' && dialog.showModal();
+    const closeDialog = (dialog) => dialog && typeof dialog.close === 'function' && dialog.close();
+
+    document.querySelector('[data-open-add-area]')?.addEventListener('click', () => showDialog(dialogs.add));
+    document.querySelector('[data-open-migrate-area]')?.addEventListener('click', () => showDialog(dialogs.migrate));
+
+    document.querySelectorAll('[data-close-dialog]').forEach((button) => {
+      button.addEventListener('click', () => closeDialog(button.closest('dialog')));
+    });
+
+    document.querySelectorAll('[data-open-edit-area]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const dialog = dialogs.edit;
+        if (!dialog) return;
+        dialog.querySelector('input[name="key"]').value = button.dataset.key || '';
+        dialog.querySelector('input[name="keyDisplay"]').value = button.dataset.key || '';
+        dialog.querySelector('input[name="label"]').value = button.dataset.label || '';
+        dialog.querySelector('input[name="minStaff"]').value = button.dataset.minStaff || '0';
+        showDialog(dialog);
+      });
+    });
+
+    document.querySelectorAll('[data-open-delete-area]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const memberCount = Number(button.dataset.memberCount || '0');
+        const shiftCount = Number(button.dataset.shiftCount || '0');
+        if (memberCount > 0) {
+          const dialog = dialogs.blocked;
+          if (!dialog) return;
+          dialog.querySelector('[data-blocked-copy]').textContent =
+            `${button.dataset.label || 'This area'} still has ${memberCount} member${memberCount === 1 ? '' : 's'} assigned. Migrate or update those members before deleting the area.`;
+          showDialog(dialog);
+          return;
+        }
+
+        const dialog = dialogs.delete;
+        if (!dialog) return;
+        dialog.querySelector('input[name="key"]').value = button.dataset.key || '';
+        dialog.querySelector('[data-delete-copy]').textContent =
+          shiftCount > 0
+            ? `${button.dataset.label || 'This area'} still has ${shiftCount} recorded shift${shiftCount === 1 ? '' : 's'}. Delete will only succeed if nothing still references it.`
+            : `Delete ${button.dataset.label || 'this area'}?`;
+        showDialog(dialog);
+      });
+    });
+  </script>
 </Layout>
