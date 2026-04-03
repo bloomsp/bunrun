@@ -20,6 +20,7 @@ const REPORTS = [
   { key: 'runsheet', label: 'Runsheet' },
   { key: 'shifts-by-area', label: 'Shifts by Area' },
   { key: 'shifts-by-member', label: 'Shifts by Member' },
+  { key: 'breaks-by-area', label: 'Breaks by Area' },
   { key: 'breaks-chronological', label: 'Breaks by Time' },
   { key: 'breaks-by-member', label: 'Breaks by Member' }
 ] as const;
@@ -124,6 +125,15 @@ const chronologicalBreaks = breaks
 const memberSortedBreaks = breaks
   .slice()
   .sort((a, b) => a.off_member_name.localeCompare(b.off_member_name) || a.start_time.localeCompare(b.start_time));
+
+const groupedBreaks = areas
+  .map((area) => ({
+    area,
+    rows: breaks
+      .filter((row) => row.off_area_key === area.key)
+      .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.off_member_name.localeCompare(b.off_member_name))
+  }))
+  .filter((group) => group.rows.length > 0);
 ---
 
 <Layout title={`${reportLabel} ${date} | Bunrun`}>
@@ -290,6 +300,38 @@ const memberSortedBreaks = breaks
             </tbody>
           </table>
         </div>
+      </div>
+    )}
+
+    {selectedReport === 'breaks-by-area' && (
+      <div class="mt-6 space-y-6">
+        {groupedBreaks.map(({ area, rows }) => (
+          <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 class="text-lg font-semibold text-slate-900">{area.label}</h2>
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr class="border-b border-slate-200 text-left text-slate-600">
+                    <th class="px-3 py-2">Time</th>
+                    <th class="px-3 py-2">Member</th>
+                    <th class="px-3 py-2">Duration</th>
+                    <th class="px-3 py-2">Cover</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr class="border-b border-slate-100 last:border-b-0">
+                      <td class="px-3 py-2">{row.start_time}</td>
+                      <td class="px-3 py-2">{row.off_member_name}</td>
+                      <td class="px-3 py-2">{row.duration_minutes}m</td>
+                      <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))}
       </div>
     )}
 
