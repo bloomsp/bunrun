@@ -11,6 +11,7 @@ type ShiftRow = {
   member_id: number;
   home_area_key: string;
   status_key: string;
+  shift_role: string;
   start_time: string;
   end_time: string | null;
   shift_minutes: number;
@@ -38,7 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const shifts = (await DB.prepare(
     `SELECT s.id, s.schedule_id, s.member_id, s.home_area_key, s.status_key, s.start_time, s.end_time, s.shift_minutes,
-            m.break_preference
+            s.shift_role, m.break_preference
      FROM shifts s
      JOIN members m ON m.id = s.member_id
      WHERE schedule_id=? AND status_key <> 'sick'`
@@ -66,6 +67,7 @@ export const POST: APIRoute = async ({ request }) => {
       member_id: shift.member_id,
       home_area_key: shift.home_area_key,
       status_key: shift.status_key,
+      shift_role: shift.shift_role,
       start_time: shift.start_time,
       end_time: shift.end_time
     })),

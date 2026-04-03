@@ -15,6 +15,7 @@ export const POST: APIRoute = async ({ request }) => {
   const memberId = Number(form.get('memberId'));
   const homeAreaKey = (form.get('homeAreaKey') || '').toString();
   const statusKey = (form.get('statusKey') || '').toString();
+  const shiftRole = ((form.get('shiftRole') || 'normal').toString() === 'floater' ? 'floater' : 'normal');
 
   const startTimeRaw = (form.get('startTime') || '').toString();
   const endTimeRaw = (form.get('endTime') || '').toString();
@@ -71,10 +72,10 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   await DB.prepare(
-    `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, shift_role, start_time, end_time, shift_minutes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(scheduleId, memberId, homeAreaKey, statusKey, startTime, endTime, shiftMinutes)
+    .bind(scheduleId, memberId, homeAreaKey, statusKey, shiftRole, startTime, endTime, shiftMinutes)
     .run();
 
   return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added' });

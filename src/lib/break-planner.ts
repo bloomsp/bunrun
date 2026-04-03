@@ -6,6 +6,7 @@ export type PlannerShift = {
   member_id: number;
   home_area_key: string;
   status_key: string;
+  shift_role?: string;
   start_time: string;
   end_time: string | null;
 };
@@ -136,6 +137,10 @@ function coverOptionScore(
   const preferredRanks = context.preferredRankByShiftId.get(targetBreak.shift_id) ?? new Map<number, number>();
   const preferredRank = preferredRanks.get(coverShift.member_id);
   let score = 0;
+
+  if ((coverShift.shift_role ?? 'normal') === 'floater') {
+    score -= 120;
+  }
 
   if (preferredRank == null) {
     score += 40;

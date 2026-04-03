@@ -1,0 +1,1 @@
+ALTER TABLE shifts ADD COLUMN shift_role TEXT NOT NULL DEFAULT 'normal';

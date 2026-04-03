@@ -21,7 +21,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const shift = (await DB.prepare(
     `SELECT s.id, s.schedule_id, s.member_id, s.home_area_key, s.status_key, s.start_time, s.end_time, s.shift_minutes,
-            m.break_preference
+            s.shift_role, m.break_preference
      FROM shifts s
      JOIN members m ON m.id = s.member_id
      WHERE s.id=?`
@@ -35,7 +35,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const shifts = (await DB.prepare(
-    `SELECT id, member_id, home_area_key, status_key, start_time, end_time
+    `SELECT id, member_id, home_area_key, status_key, shift_role, start_time, end_time
      FROM shifts WHERE schedule_id=?`
   )
     .bind(shift.schedule_id)

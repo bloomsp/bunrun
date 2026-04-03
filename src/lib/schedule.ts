@@ -5,6 +5,7 @@ type ShiftCopyRow = {
   member_id: number;
   home_area_key: string;
   status_key: string;
+  shift_role: string;
   start_time: string;
   end_time: string | null;
   shift_minutes: number;
@@ -84,6 +85,7 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
   const sourceShifts = (
     await DB.prepare(
       `SELECT id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes
+             , shift_role
        FROM shifts
        WHERE schedule_id=?
        ORDER BY id ASC`
@@ -109,14 +111,15 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
   const targetShiftIdBySourceShiftId = new Map<number, number>();
   for (const shift of sourceShifts) {
     const insertResult = await DB.prepare(
-      `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, start_time, end_time, shift_minutes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, shift_role, start_time, end_time, shift_minutes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         targetScheduleId,
         shift.member_id,
         shift.home_area_key,
         shift.status_key,
+        shift.shift_role ?? 'normal',
         shift.start_time,
         shift.end_time,
         shift.shift_minutes
@@ -131,12 +134,21 @@ export async function copyScheduleDay(DB: D1Database, sourceDate: string, target
     const inserted = (await DB.prepare(
       `SELECT id
        FROM shifts
-       WHERE schedule_id=? AND member_id=? AND home_area_key=? AND status_key=? AND start_time=?
+       WHERE schedule_id=? AND member_id=? AND home_area_key=? AND status_key=? AND shift_role=? AND start_time=?
          AND ((end_time IS NULL AND ? IS NULL) OR end_time=?)
        ORDER BY id DESC
        LIMIT 1`
     )
-      .bind(targetScheduleId, shift.member_id, shift.home_area_key, shift.status_key, shift.start_time, shift.end_time, shift.end_time)
+      .bind(
+        targetScheduleId,
+        shift.member_id,
+        shift.home_area_key,
+        shift.status_key,
+        shift.shift_role ?? 'normal',
+        shift.start_time,
+        shift.end_time,
+        shift.end_time
+      )
       .first()) as { id: number } | null;
     if (inserted?.id) targetShiftIdBySourceShiftId.set(shift.id, inserted.id);
   }

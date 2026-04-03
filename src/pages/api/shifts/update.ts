@@ -15,6 +15,7 @@ export const POST: APIRoute = async ({ request }) => {
   const shiftId = Number(form.get('shiftId'));
   const homeAreaKey = (form.get('homeAreaKey') || '').toString();
   const statusKey = (form.get('statusKey') || '').toString();
+  const shiftRole = ((form.get('shiftRole') || 'normal').toString() === 'floater' ? 'floater' : 'normal');
   const startTime = (form.get('startTime') || '').toString();
   const endTime = (form.get('endTime') || '').toString();
   const preferredCovererIds = form.getAll('preferredCovererIds')
@@ -69,9 +70,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   await DB.prepare(
-    'UPDATE shifts SET home_area_key=?, status_key=?, start_time=?, end_time=?, shift_minutes=? WHERE id=?'
+    'UPDATE shifts SET home_area_key=?, status_key=?, shift_role=?, start_time=?, end_time=?, shift_minutes=? WHERE id=?'
   )
-    .bind(homeAreaKey, statusKey, startTime, endTime, shiftMinutes, shiftId)
+    .bind(homeAreaKey, statusKey, shiftRole, startTime, endTime, shiftMinutes, shiftId)
     .run();
 
   await DB.prepare('DELETE FROM shift_cover_priorities WHERE shift_id=?').bind(shiftId).run();

@@ -43,7 +43,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (coverMemberId !== null) {
     const shifts = (await DB.prepare(
-      'SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=?'
+      'SELECT id, member_id, home_area_key, status_key, shift_role, start_time, end_time FROM shifts WHERE schedule_id=?'
     )
       .bind(target.schedule_id)
       .all()).results as PlannerShift[];

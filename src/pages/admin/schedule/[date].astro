@@ -8,6 +8,8 @@ import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../li
 import { breakAllowanceMinutes } from '../../../lib/breaks';
 import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
 import {
+  activeWorkingShiftForMember,
+  breakTargetRange,
   buildPlannerContext,
   isCoverAssignmentValid,
   listEligibleCoverOptions,
@@ -39,6 +41,7 @@ type ShiftRow = {
   name: string;
   home_area_key: string;
   status_key: string;
+  shift_role: string;
   start_time: string;
   end_time: string | null;
   shift_minutes: number;
@@ -66,8 +69,19 @@ type ShiftView = ShiftRow & {
   computed_minutes: number;
   warnings: string[];
   status_label: string;
+  role_label: string;
   area_label: string;
   preferred_coverer_names: string[];
+};
+
+type BreakListRow = {
+  id: number;
+  start_time: string;
+  duration_minutes: number;
+  off_member_name: string;
+  off_area_label: string;
+  cover_member_name: string | null;
+  cover_shift_role: string | null;
 };
 
 const breakPanelBaseUrl = `/admin/schedule/${date}?panel=breaks`;
@@ -81,7 +95,7 @@ const schedule = (await DB.prepare('SELECT id, date FROM schedules WHERE date=?'
 const scheduleId = schedule.id as number;
 
 const shifts = (await DB.prepare(
-  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.start_time, s.end_time, s.shift_minutes
+  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
    FROM shifts s
    JOIN members m ON m.id = s.member_id
    WHERE s.schedule_id=?
@@ -165,6 +179,7 @@ const shiftViews = shifts.map((s) => {
     computed_minutes: computedMinutes,
     warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes) : [],
     status_label: statusByKey.get(s.status_key)?.label ?? s.status_key,
+    role_label: s.shift_role === 'floater' ? 'Floater' : 'Normal',
     area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key,
     preferred_coverer_names: preferredCovererNamesByShift.get(s.id) ?? []
   } satisfies ShiftView;
@@ -208,6 +223,7 @@ const planner = buildPlannerContext({
     member_id: shift.member_id,
     home_area_key: shift.home_area_key,
     status_key: shift.status_key,
+    shift_role: shift.shift_role,
     start_time: shift.start_time,
     end_time: shift.end_time
   })),
@@ -252,6 +268,25 @@ if (showBreakPlanning) {
 }
 
 const invalidReasonByBreakId = new Map(invalidCoverBreaks.map((x) => [x.id, x.reason]));
+const chronologicalBreakRows = plannerBreaks
+  .map((row) => {
+    const offShift = shiftById.get(row.shift_id);
+    const offMember = offShift ? memberById.get(offShift.member_id) : null;
+    const coverMember = row.cover_member_id != null ? memberById.get(row.cover_member_id) : null;
+    const coverShift = row.cover_member_id != null
+      ? activeWorkingShiftForMember(planner, row.cover_member_id, breakTargetRange(row) ?? { start: -1, end: -1 })
+      : null;
+    return {
+      id: row.id,
+      start_time: row.start_time,
+      duration_minutes: row.duration_minutes,
+      off_member_name: offMember?.name ?? 'Unknown member',
+      off_area_label: areaByKey.get(row.off_area_key)?.label ?? row.off_area_key,
+      cover_member_name: coverMember?.name ?? null,
+      cover_shift_role: coverShift?.shift_role ?? null
+    } satisfies BreakListRow;
+  })
+  .sort((a, b) => (parseHHMM(a.start_time) ?? 0) - (parseHHMM(b.start_time) ?? 0) || a.off_member_name.localeCompare(b.off_member_name));
 
 const editShiftId = Number(Astro.url.searchParams.get('editShift') || '0');
 const notice = Astro.url.searchParams.get('notice');
@@ -312,6 +347,14 @@ function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
       const ranks = preferredRankByShiftId.get(offShift.id) ?? new Map<number, number>();
       const aRank = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
       const bRank = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      const targetRange = plannerBreak ? breakTargetRange(plannerBreak) : null;
+      const aFloater = targetRange
+        ? activeWorkingShiftForMember(planner, a.id, targetRange)?.shift_role === 'floater'
+        : false;
+      const bFloater = targetRange
+        ? activeWorkingShiftForMember(planner, b.id, targetRange)?.shift_role === 'floater'
+        : false;
+      if (aFloater !== bFloater) return aFloater ? -1 : 1;
       if (aRank !== bRank) return aRank - bRank;
       const aSameArea = workingShifts.some((shift) => shift.member_id === a.id && shift.home_area_key === offShift.home_area_key);
       const bSameArea = workingShifts.some((shift) => shift.member_id === b.id && shift.home_area_key === offShift.home_area_key);
@@ -496,6 +539,15 @@ if (showBreakPlanning) {
         </label>
 
         <label class="block">
+          <div class="text-sm font-medium text-slate-800">Role</div>
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+            <option value="normal" selected>Normal</option>
+            <option value="floater">Floater</option>
+          </select>
+          <div class="mt-1 text-xs text-slate-500">Floaters are prioritised to cover other members where possible.</div>
+        </label>
+
+        <label class="block">
           <div class="text-sm font-medium text-slate-800">Start</div>
           <input
             class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
@@ -535,11 +587,12 @@ if (showBreakPlanning) {
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 class="text-lg font-medium">Shifts</h2>
       <div class="mt-4 overflow-x-auto">
-        <table class="w-full min-w-[900px] border-separate border-spacing-y-2 text-sm">
+        <table class="w-full min-w-[980px] border-separate border-spacing-y-2 text-sm">
           <thead>
             <tr class="text-left text-slate-600">
               <th class="px-3">Member</th>
               <th class="px-3">Area</th>
+              <th class="px-3">Role</th>
               <th class="px-3">Status</th>
               <th class="px-3">Start</th>
               <th class="px-3">End</th>
@@ -556,7 +609,7 @@ if (showBreakPlanning) {
                 return (
                   <tr class="bg-slate-50">
                     <td class="px-3 py-3 font-medium">{s.name}</td>
-                    <td class="px-3 py-3" colspan="7">
+                    <td class="px-3 py-3" colspan="8">
                       <form class="grid gap-3 sm:grid-cols-6" method="post" action="/api/shifts/update">
                         <input type="hidden" name="date" value={date} />
                         <input type="hidden" name="shiftId" value={s.id} />
@@ -576,6 +629,14 @@ if (showBreakPlanning) {
                             {statuses.map((st) => (
                               <option value={st.key} selected={st.key === s.status_key}>{st.label}</option>
                             ))}
+                          </select>
+                        </label>
+
+                        <label class="block">
+                          <div class="text-xs font-medium text-slate-700">Role</div>
+                          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+                            <option value="normal" selected={s.shift_role !== 'floater'}>Normal</option>
+                            <option value="floater" selected={s.shift_role === 'floater'}>Floater</option>
                           </select>
                         </label>
 
@@ -634,6 +695,13 @@ if (showBreakPlanning) {
                   <td class="px-3 py-3 font-medium">{s.name}</td>
                   <td class="px-3 py-3">{s.area_label}</td>
                   <td class="px-3 py-3">
+                    {s.shift_role === 'floater' ? (
+                      <span class="rounded-full bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-900">Floater</span>
+                    ) : (
+                      <span class="text-slate-500">Normal</span>
+                    )}
+                  </td>
+                  <td class="px-3 py-3">
                     {s.status_key === 'sick' ? (
                       <span class="rounded bg-rose-100 px-2 py-1 font-medium text-rose-900">Sick</span>
                     ) : (
@@ -679,6 +747,56 @@ if (showBreakPlanning) {
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
+    </div>
+
+    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-medium">Break timeline</h2>
+          <p class="mt-2 text-sm text-slate-600">Breaks in chronological order, including who is covering each break.</p>
+        </div>
+        <div class="text-sm text-slate-500">{chronologicalBreakRows.length} break{chronologicalBreakRows.length === 1 ? '' : 's'}</div>
+      </div>
+
+      {chronologicalBreakRows.length > 0 ? (
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full min-w-[760px] border-separate border-spacing-y-2 text-sm">
+            <thead>
+              <tr class="text-left text-slate-600">
+                <th class="px-3">Time</th>
+                <th class="px-3">Member</th>
+                <th class="px-3">Area</th>
+                <th class="px-3">Duration</th>
+                <th class="px-3">Cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chronologicalBreakRows.map((row) => (
+                <tr class:list={['bg-slate-50', !row.cover_member_name && 'bg-rose-50']}>
+                  <td class="px-3 py-3 font-medium">{row.start_time}</td>
+                  <td class="px-3 py-3">{row.off_member_name}</td>
+                  <td class="px-3 py-3">{row.off_area_label}</td>
+                  <td class="px-3 py-3">{row.duration_minutes}m</td>
+                  <td class="px-3 py-3">
+                    {row.cover_member_name ? (
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span>{row.cover_member_name}</span>
+                        {row.cover_shift_role === 'floater' && (
+                          <span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Floater</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span class="font-medium text-rose-700">Missing cover</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="mt-4 text-sm text-slate-600">No breaks planned yet.</div>
+      )}
     </div>
 
     <div id="breaks" class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
