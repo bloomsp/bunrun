@@ -5,6 +5,7 @@ import Layout from '../../layouts/Layout.astro';
 import Runsheet from '../../components/Runsheet.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { formatDurationMinutes } from '../../lib/time';
 import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../lib/schedule';
 
 const guard = requireRole(Astro.request, 'view');
@@ -14,6 +15,49 @@ const date = Astro.params.date ?? '';
 if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
   return new Response('Invalid date', { status: 400 });
 }
+
+const REPORTS = [
+  { key: 'runsheet', label: 'Runsheet' },
+  { key: 'shifts-by-area', label: 'Shifts by Area' },
+  { key: 'shifts-by-member', label: 'Shifts by Member' },
+  { key: 'breaks-chronological', label: 'Breaks by Time' },
+  { key: 'breaks-by-member', label: 'Breaks by Member' }
+] as const;
+
+type ReportKey = typeof REPORTS[number]['key'];
+type Area = { key: string; label: string; min_staff?: number };
+type ShiftRow = {
+  id: number;
+  member_id: number;
+  name: string;
+  home_area_key: string;
+  status_key: string;
+  shift_role: string;
+  start_time: string;
+  end_time: string | null;
+  shift_minutes: number;
+};
+type BreakRow = {
+  id: number;
+  work_block_id: number | null;
+  shift_id: number;
+  start_time: string;
+  duration_minutes: number;
+  cover_member_id: number | null;
+  off_member_name: string;
+  off_area_key: string;
+  cover_member_name: string | null;
+};
+
+const reportParam = (Astro.url.searchParams.get('report') || 'runsheet').toString() as ReportKey;
+const selectedReport = REPORTS.some((report) => report.key === reportParam) ? reportParam : 'runsheet';
+const reportLabel = REPORTS.find((report) => report.key === selectedReport)?.label ?? 'Runsheet';
+const reportHref = (targetDate: string, report: ReportKey) => report === 'runsheet'
+  ? `/view/${targetDate}`
+  : `/view/${targetDate}?report=${report}`;
+const printHref = selectedReport === 'runsheet'
+  ? `/view/${date}/print`
+  : `/view/${date}/print?report=${selectedReport}`;
 
 const DB = await getDB();
 const weekStart = startOfWeek(date);
@@ -38,38 +82,64 @@ const weekCountsByDate = new Map(
   weeklyCountsRows.map((row) => [row.date, Number(row.shift_count ?? 0)])
 );
 
-const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as any[];
+const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
+const areaByKey = new Map(areas.map((area) => [area.key, area.label]));
 
 const shifts = (await DB.prepare(
-  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.start_time, s.end_time
+  `SELECT s.id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
    FROM shifts s
    JOIN members m ON m.id=s.member_id
    WHERE s.schedule_id=?
-   ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC`
-).bind(scheduleId).all()).results as any[];
+   ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC, s.start_time ASC`
+).bind(scheduleId).all()).results as ShiftRow[];
 
 const breaks = (await DB.prepare(
-  `SELECT b.id, b.shift_id, b.start_time, b.duration_minutes
+  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+          offm.name AS off_member_name, s.home_area_key AS off_area_key, coverm.name AS cover_member_name
    FROM breaks b
    JOIN shifts s ON s.id=b.shift_id
-   WHERE s.schedule_id=?`
-).bind(scheduleId).all()).results as any[];
+   JOIN members offm ON offm.id=s.member_id
+   LEFT JOIN members coverm ON coverm.id=b.cover_member_id
+   WHERE s.schedule_id=?
+   ORDER BY b.start_time ASC, offm.name COLLATE NOCASE ASC`
+).bind(scheduleId).all()).results as BreakRow[];
+
+const groupedShifts = areas
+  .map((area) => ({
+    area,
+    rows: shifts
+      .filter((shift) => shift.home_area_key === area.key)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.start_time.localeCompare(b.start_time))
+  }))
+  .filter((group) => group.rows.length > 0);
+
+const memberSortedShifts = shifts
+  .slice()
+  .sort((a, b) => a.name.localeCompare(b.name) || a.start_time.localeCompare(b.start_time) || a.home_area_key.localeCompare(b.home_area_key));
+
+const chronologicalBreaks = breaks
+  .slice()
+  .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.off_member_name.localeCompare(b.off_member_name));
+
+const memberSortedBreaks = breaks
+  .slice()
+  .sort((a, b) => a.off_member_name.localeCompare(b.off_member_name) || a.start_time.localeCompare(b.start_time));
 ---
 
-<Layout title={`Runsheet ${date} | Bunrun`}>
+<Layout title={`${reportLabel} ${date} | Bunrun`}>
   <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Read-only runsheet</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Read-only schedule</h1>
         <div class="mt-1 text-slate-700">{formatLongDateLabel(date)}</div>
         <div class="mt-1 text-sm text-slate-500">Week of {weekStart}</div>
       </div>
       <div class="flex flex-wrap items-center gap-3">
         <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/view">Change date</a>
-        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${previousWeekDate}`}>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={reportHref(previousWeekDate, selectedReport)}>
           Previous week
         </a>
-        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${nextWeekDate}`}>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={reportHref(nextWeekDate, selectedReport)}>
           Next week
         </a>
       </div>
@@ -88,7 +158,7 @@ const breaks = (await DB.prepare(
                   ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
                   : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
               ]}
-              href={`/view/${tabDate}`}
+              href={reportHref(tabDate, selectedReport)}
             >
               <div class="text-sm font-semibold">{formatShortDateLabel(tabDate)}</div>
               <div class="mt-1 text-xs text-slate-600">
@@ -100,13 +170,156 @@ const breaks = (await DB.prepare(
       </div>
     </div>
 
-    <div class="mt-4 flex items-center justify-between gap-3">
-      <div class="text-sm text-slate-600">Tip: use Print for PDF export.</div>
-      <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={`/view/${date}/print`}>
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap gap-2">
+        {REPORTS.map((report) => (
+          <a
+            class:list={[
+              'rounded-full border px-3 py-1.5 text-sm transition',
+              report.key === selectedReport
+                ? 'border-emerald-600 bg-emerald-50 text-emerald-950'
+                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            ]}
+            href={reportHref(date, report.key)}
+          >
+            {report.label}
+          </a>
+        ))}
+      </div>
+      <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={printHref}>
         Print / PDF
       </a>
     </div>
 
-    <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
+    {selectedReport === 'runsheet' && (
+      <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
+    )}
+
+    {selectedReport === 'shifts-by-area' && (
+      <div class="mt-6 space-y-6">
+        {groupedShifts.map(({ area, rows }) => (
+          <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 class="text-lg font-semibold text-slate-900">{area.label}</h2>
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr class="border-b border-slate-200 text-left text-slate-600">
+                    <th class="px-3 py-2">Member</th>
+                    <th class="px-3 py-2">Start</th>
+                    <th class="px-3 py-2">End</th>
+                    <th class="px-3 py-2">Length</th>
+                    <th class="px-3 py-2">Role</th>
+                    <th class="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((shift) => (
+                    <tr class="border-b border-slate-100 last:border-b-0">
+                      <td class="px-3 py-2">{shift.name}</td>
+                      <td class="px-3 py-2">{shift.start_time}</td>
+                      <td class="px-3 py-2">{shift.end_time ?? '—'}</td>
+                      <td class="px-3 py-2">{formatDurationMinutes(Number(shift.shift_minutes ?? 0))}</td>
+                      <td class="px-3 py-2">{shift.shift_role === 'floater' ? 'Floater' : 'Normal'}</td>
+                      <td class="px-3 py-2">{shift.status_key}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))}
+      </div>
+    )}
+
+    {selectedReport === 'shifts-by-member' && (
+      <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-slate-600">
+                <th class="px-3 py-2">Member</th>
+                <th class="px-3 py-2">Area</th>
+                <th class="px-3 py-2">Start</th>
+                <th class="px-3 py-2">End</th>
+                <th class="px-3 py-2">Length</th>
+                <th class="px-3 py-2">Role</th>
+                <th class="px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memberSortedShifts.map((shift) => (
+                <tr class="border-b border-slate-100 last:border-b-0">
+                  <td class="px-3 py-2">{shift.name}</td>
+                  <td class="px-3 py-2">{areaByKey.get(shift.home_area_key) ?? shift.home_area_key}</td>
+                  <td class="px-3 py-2">{shift.start_time}</td>
+                  <td class="px-3 py-2">{shift.end_time ?? '—'}</td>
+                  <td class="px-3 py-2">{formatDurationMinutes(Number(shift.shift_minutes ?? 0))}</td>
+                  <td class="px-3 py-2">{shift.shift_role === 'floater' ? 'Floater' : 'Normal'}</td>
+                  <td class="px-3 py-2">{shift.status_key}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+
+    {selectedReport === 'breaks-chronological' && (
+      <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-slate-600">
+                <th class="px-3 py-2">Time</th>
+                <th class="px-3 py-2">Member</th>
+                <th class="px-3 py-2">Area</th>
+                <th class="px-3 py-2">Duration</th>
+                <th class="px-3 py-2">Cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chronologicalBreaks.map((row) => (
+                <tr class="border-b border-slate-100 last:border-b-0">
+                  <td class="px-3 py-2">{row.start_time}</td>
+                  <td class="px-3 py-2">{row.off_member_name}</td>
+                  <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
+                  <td class="px-3 py-2">{row.duration_minutes}m</td>
+                  <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+
+    {selectedReport === 'breaks-by-member' && (
+      <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-slate-600">
+                <th class="px-3 py-2">Member</th>
+                <th class="px-3 py-2">Time</th>
+                <th class="px-3 py-2">Area</th>
+                <th class="px-3 py-2">Duration</th>
+                <th class="px-3 py-2">Cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memberSortedBreaks.map((row) => (
+                <tr class="border-b border-slate-100 last:border-b-0">
+                  <td class="px-3 py-2">{row.off_member_name}</td>
+                  <td class="px-3 py-2">{row.start_time}</td>
+                  <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
+                  <td class="px-3 py-2">{row.duration_minutes}m</td>
+                  <td class="px-3 py-2">{row.cover_member_name ?? 'Missing cover'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
   </div>
 </Layout>
