@@ -48,6 +48,7 @@ type BreakRow = {
   cover_member_name: string | null;
   off_member_name: string;
   off_area_key: string;
+  area_covered?: boolean;
 };
 
 const reportParam = (Astro.url.searchParams.get('report') || 'runsheet').toString() as ReportKey;
@@ -169,7 +170,16 @@ const groupedBreaks = areas
     </div>
 
     {selectedReport === 'runsheet' && (
-      <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} variant="print" />
+      <Runsheet
+        date={date}
+        areas={areas}
+        shifts={shifts}
+        breaks={breaks.map((row) => ({
+          ...row,
+          area_covered: areaCoveredByBreakId.get(row.id) === true
+        }))}
+        variant="print"
+      />
     )}
 
     {selectedReport === 'shifts-by-area' && (

@@ -773,7 +773,15 @@ if (showBreakPlanning) {
     </dialog>
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <Runsheet date={date} areas={areas} shifts={shifts} breaks={breaks} />
+      <Runsheet
+        date={date}
+        areas={areas}
+        shifts={shifts}
+        breaks={breaks.map((row) => ({
+          ...row,
+          area_covered: areaCoveredByBreakId.get(row.id) === true
+        }))}
+      />
     </div>
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

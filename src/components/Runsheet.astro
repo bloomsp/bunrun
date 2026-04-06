@@ -18,6 +18,7 @@ export type Break = {
   start_time: string;
   duration_minutes: number;
   cover_member_name?: string | null;
+  area_covered?: boolean;
 };
 
 export interface Props {
@@ -93,7 +94,7 @@ function breakMarker(duration: number, hasCover: boolean) {
 }
 
 function breakTitle(b: Break) {
-  const coverText = b.cover_member_name ? ` · Covered by ${b.cover_member_name}` : '';
+  const coverText = b.cover_member_name ? ` · Covered by ${b.cover_member_name}` : b.area_covered ? ' · Area covered' : '';
   return `Break ${b.start_time} (${b.duration_minutes}m)${coverText}`;
 }
 
@@ -320,7 +321,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                             style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
                             title={breakTitle(b)}
                           >
-                            {breakMarker(b.duration_minutes, Boolean(b.cover_member_name))}
+                            {breakMarker(b.duration_minutes, Boolean(b.cover_member_name) || b.area_covered === true)}
                           </div>
                         );
                       })}
