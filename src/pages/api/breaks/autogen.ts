@@ -76,6 +76,7 @@ export const POST: APIRoute = async ({ request }) => {
   let bestPendingBreaks: PlannerBreak[] = [];
   let bestAssignments = new Map<number, number | null>();
   let bestMissingCount = Number.POSITIVE_INFINITY;
+  let bestGeneratedCount = -1;
 
   for (const offset of candidateOffsets(0)) {
     const areaBreaks = existingBreaks
@@ -103,15 +104,19 @@ export const POST: APIRoute = async ({ request }) => {
       ...row,
       cover_member_id: assignments.get(row.id) ?? null
     }));
-    const missingCount = candidateBreaks.reduce(
+    const missingCount = (durations.length - pendingBreaks.length) + candidateBreaks.reduce(
       (count, row) => count + (isCoverAssignmentValid(planner, [...existingBreaks.filter((item) => item.work_block_id !== workBlockId), ...candidateBreaks], row, row.cover_member_id) ? 0 : 1),
       0
     );
-    if (missingCount < bestMissingCount) {
+    if (
+      pendingBreaks.length > bestGeneratedCount ||
+      (pendingBreaks.length === bestGeneratedCount && missingCount < bestMissingCount)
+    ) {
       bestPendingBreaks = pendingBreaks;
       bestAssignments = assignments;
       bestMissingCount = missingCount;
-      if (missingCount === 0) break;
+      bestGeneratedCount = pendingBreaks.length;
+      if (pendingBreaks.length === durations.length && missingCount === 0) break;
     }
   }
 
