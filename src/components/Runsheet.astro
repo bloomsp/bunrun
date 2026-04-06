@@ -79,7 +79,13 @@ function widthSlots(start: number, end: number) {
   return ((end - start) / RUNSHEET_STEP_MIN) + 1;
 }
 
-function breakMarker(duration: number) {
+function breakMarker(duration: number, hasCover: boolean) {
+  if (!hasCover) {
+    if (duration <= 15) return '?';
+    if (duration <= 30) return '?\n?';
+    if (duration <= 45) return '?\n?\n?';
+    return '?\n?\n?\n?';
+  }
   if (duration <= 15) return 'X';
   if (duration <= 30) return 'X\nX';
   if (duration <= 45) return 'X\nX\nX';
@@ -314,7 +320,7 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                             style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
                             title={breakTitle(b)}
                           >
-                            {breakMarker(b.duration_minutes)}
+                            {breakMarker(b.duration_minutes, Boolean(b.cover_member_name))}
                           </div>
                         );
                       })}
@@ -329,6 +335,6 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   </div>
 
   <div class="runsheet-legend mt-2 text-xs text-slate-600">
-    Break marker legend: 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
+    Break marker legend: missing cover = stacked ? by duration · 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
   </div>
 </section>
