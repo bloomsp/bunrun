@@ -91,6 +91,7 @@ export const POST: APIRoute = async ({ request }) => {
       .filter((shift: any) => shift.work_block_id === block.id && shift.status_key === 'working')
       .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
     if (blockShifts.length === 0) continue;
+    const blockAreaKeys = new Set(blockShifts.map((shift: any) => shift.home_area_key));
 
     const durations = generateBreakTemplate(Number(block.total_minutes ?? 0), (block.break_preference as any) ?? '15+30');
     let bestPendingBreaks: PlannerBreak[] = [];
@@ -98,7 +99,10 @@ export const POST: APIRoute = async ({ request }) => {
     let bestMissingCount = Number.POSITIVE_INFINITY;
 
     for (const offset of candidateOffsets(0)) {
-      const proposed = proposeBreakTimes(block as any, durations, { offsetMinutes: offset, existingBreaks: [] });
+      const areaBreaks = plannedBreaks
+        .filter((row) => row.work_block_id !== block.id && blockAreaKeys.has(row.off_area_key))
+        .map((row) => ({ start_time: row.start_time, duration_minutes: row.duration_minutes }));
+      const proposed = proposeBreakTimes(block as any, durations, { offsetMinutes: offset, existingBreaks: areaBreaks });
       const pendingBreaks: PlannerBreak[] = proposed.flatMap((row, index) => {
         const activeShift = activeShiftAtTime(blockShifts, block.member_id, row.start_time);
         if (!activeShift) return [];

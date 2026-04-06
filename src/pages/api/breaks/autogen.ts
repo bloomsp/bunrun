@@ -38,6 +38,7 @@ export const POST: APIRoute = async ({ request }) => {
     .filter((shift: any) => shift.work_block_id === workBlockId && shift.status_key === 'working')
     .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
   if (blockShifts.length === 0) return redirectWithMessage(returnTo, { error: 'No working shifts found for this work block' });
+  const blockAreaKeys = new Set(blockShifts.map((shift: any) => shift.home_area_key));
 
   const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as any[];
   const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
@@ -77,7 +78,10 @@ export const POST: APIRoute = async ({ request }) => {
   let bestMissingCount = Number.POSITIVE_INFINITY;
 
   for (const offset of candidateOffsets(0)) {
-    const proposed = proposeBreakTimes(block, durations, { offsetMinutes: offset, existingBreaks: [] });
+    const areaBreaks = existingBreaks
+      .filter((row) => row.work_block_id !== workBlockId && blockAreaKeys.has(row.off_area_key))
+      .map((row) => ({ start_time: row.start_time, duration_minutes: row.duration_minutes }));
+    const proposed = proposeBreakTimes(block, durations, { offsetMinutes: offset, existingBreaks: areaBreaks });
     const pendingBreaks: PlannerBreak[] = proposed.flatMap((row, index) => {
       const activeShift = activeShiftAtTime(blockShifts, block.member_id, row.start_time);
       if (!activeShift) return [];
