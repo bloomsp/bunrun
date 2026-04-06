@@ -108,7 +108,18 @@ export function proposeBreakTimes(
 }
 
 export function candidateOffsets(baseOffsetMinutes: number) {
-  return [...new Set([baseOffsetMinutes, baseOffsetMinutes + 15, baseOffsetMinutes + 30, baseOffsetMinutes + 45])];
+  return [
+    ...new Set([
+      baseOffsetMinutes - 60,
+      baseOffsetMinutes - 45,
+      baseOffsetMinutes - 30,
+      baseOffsetMinutes - 15,
+      baseOffsetMinutes,
+      baseOffsetMinutes + 15,
+      baseOffsetMinutes + 30,
+      baseOffsetMinutes + 45
+    ])
+  ];
 }
 
 export function rangeFor(b: { start_time: string; duration_minutes: number }): { start: number; end: number } | null {
