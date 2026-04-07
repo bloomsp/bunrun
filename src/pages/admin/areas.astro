@@ -2,8 +2,10 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
+import ErrorState from '../../components/ErrorState.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { friendlyDbError } from '../../lib/errors';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
@@ -13,8 +15,12 @@ type Area = { key: string; label: string; min_staff: number; member_count: numbe
 const notice = Astro.url.searchParams.get('notice');
 const errorMsg = Astro.url.searchParams.get('error');
 
+let pageError: ReturnType<typeof friendlyDbError> | null = null;
+let areas: Area[] = [];
+
+try {
 const DB = await getDB();
-const areas = (await DB.prepare(
+areas = (await DB.prepare(
   `SELECT
       a.key,
       a.label,
@@ -37,9 +43,17 @@ const areas = (await DB.prepare(
   member_count: Number(row.member_count ?? 0),
   shift_count: Number(row.shift_count ?? 0)
 })) as Area[];
+} catch (error) {
+  pageError = friendlyDbError(error);
+}
 ---
 
 <Layout title="Areas | Bunrun">
+  {pageError ? (
+    <div class="px-3 py-10">
+      <ErrorState title={pageError.title} message={pageError.message} details={pageError.details} />
+    </div>
+  ) : (
   <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -137,6 +151,7 @@ const areas = (await DB.prepare(
       </table>
     </div>
   </div>
+  )}
 
   <dialog class="w-full max-w-xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-area-dialog="add">
     <form class="p-6" method="post" action="/api/areas/add">

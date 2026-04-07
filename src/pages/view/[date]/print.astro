@@ -2,9 +2,11 @@
 export const prerender = false;
 
 import Layout from '../../../layouts/Layout.astro';
+import ErrorState from '../../../components/ErrorState.astro';
 import Runsheet from '../../../components/Runsheet.astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
+import { friendlyDbError } from '../../../lib/errors';
 import { formatDurationMinutes } from '../../../lib/time';
 import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow } from '../../../lib/view-data';
 
@@ -23,8 +25,21 @@ const backHref = selectedReport === 'runsheet'
   ? `/view/${date}`
   : `/view/${date}?report=${selectedReport}`;
 
-const DB = await getDB();
-const {
+let pageError: ReturnType<typeof friendlyDbError> | null = null;
+let areas: any[] = [];
+let areaByKey = new Map<string, string>();
+let shifts: any[] = [];
+let breaks: BreakRow[] = [];
+let groupedShifts: any[] = [];
+let memberSortedShifts: any[] = [];
+let chronologicalBreaks: BreakRow[] = [];
+let memberSortedBreaks: BreakRow[] = [];
+let groupedBreaks: any[] = [];
+let areaCoveredByBreakId = new Map<number, boolean>();
+
+try {
+  const DB = await getDB();
+  ({
   areas,
   areaByKey,
   shifts,
@@ -35,7 +50,10 @@ const {
   memberSortedBreaks,
   groupedBreaks,
   areaCoveredByBreakId
-} = await loadViewSchedulePageData(DB, date);
+  } = await loadViewSchedulePageData(DB, date));
+} catch (error) {
+  pageError = friendlyDbError(error);
+}
 
 function coverLabel(row: BreakRow) {
   if (row.cover_member_name) return row.cover_member_name;
@@ -52,6 +70,11 @@ function coverLabel(row: BreakRow) {
     }
   </style>
 
+  {pageError ? (
+    <div class="px-4 py-6">
+      <ErrorState title={pageError.title} message={pageError.message} details={pageError.details} />
+    </div>
+  ) : (
   <div class="px-4 py-6">
     <div class="mb-4 flex items-center justify-between gap-3">
       <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href={backHref}>
@@ -226,4 +249,5 @@ function coverLabel(row: BreakRow) {
       Print this page to PDF.
     </div>
   </div>
+  )}
 </Layout>

@@ -2,8 +2,10 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
+import ErrorState from '../../components/ErrorState.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { friendlyDbError } from '../../lib/errors';
 import { BREAK_PREFERENCES } from '../../lib/member-config';
 import { loadAreas, loadMembers, loadPermissions } from '../../lib/lookups';
 
@@ -42,7 +44,8 @@ try {
   areas = areaRows.map((row) => ({ key: row.key, label: row.label }));
   perms = permissionRows as Permission[];
 } catch (e: any) {
-  dbError = e?.message ?? String(e);
+  const friendly = friendlyDbError(e);
+  dbError = friendly.details ?? friendly.message;
 }
 
 function allowedAreasFor(memberId: number) {
@@ -86,9 +89,12 @@ function areaLabel(areaKey: string | null) {
     )}
 
     {dbError ? (
-      <div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
-        <div class="font-medium">DB not configured yet</div>
-        <div class="mt-2 text-sm">{dbError}</div>
+      <div class="mt-6">
+        <ErrorState
+          title="Members data is unavailable"
+          message="The page could not load member data from the server-side database."
+          details={dbError}
+        />
       </div>
     ) : (
       <div class="mt-6 space-y-4">

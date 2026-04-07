@@ -2,9 +2,11 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
+import ErrorState from '../../components/ErrorState.astro';
 import Runsheet from '../../components/Runsheet.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
+import { friendlyDbError } from '../../lib/errors';
 import { formatDurationMinutes } from '../../lib/time';
 import { formatLongDateLabel, formatShortDateLabel } from '../../lib/schedule';
 import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow } from '../../lib/view-data';
@@ -27,8 +29,26 @@ const printHref = selectedReport === 'runsheet'
   ? `/view/${date}/print`
   : `/view/${date}/print?report=${selectedReport}`;
 
-const DB = await getDB();
-const {
+let pageError: ReturnType<typeof friendlyDbError> | null = null;
+let weekStart = date;
+let weekDates: string[] = [];
+let previousWeekDate = date;
+let nextWeekDate = date;
+let weekCountsByDate = new Map<string, number>();
+let areas: any[] = [];
+let areaByKey = new Map<string, string>();
+let shifts: any[] = [];
+let breaks: BreakRow[] = [];
+let groupedShifts: any[] = [];
+let memberSortedShifts: any[] = [];
+let chronologicalBreaks: BreakRow[] = [];
+let memberSortedBreaks: BreakRow[] = [];
+let groupedBreaks: any[] = [];
+let areaCoveredByBreakId = new Map<number, boolean>();
+
+try {
+  const DB = await getDB();
+  ({
   weekStart,
   weekDates,
   previousWeekDate,
@@ -44,7 +64,10 @@ const {
   memberSortedBreaks,
   groupedBreaks,
   areaCoveredByBreakId
-} = await loadViewSchedulePageData(DB, date);
+  } = await loadViewSchedulePageData(DB, date));
+} catch (error) {
+  pageError = friendlyDbError(error);
+}
 
 function coverLabel(row: BreakRow) {
   if (row.cover_member_name) return row.cover_member_name;
@@ -53,6 +76,11 @@ function coverLabel(row: BreakRow) {
 ---
 
 <Layout title={`${reportLabel} ${date} | Bunrun`}>
+  {pageError ? (
+    <div class="px-3 py-10">
+      <ErrorState title={pageError.title} message={pageError.message} details={pageError.details} />
+    </div>
+  ) : (
   <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -288,4 +316,5 @@ function coverLabel(row: BreakRow) {
       </div>
     )}
   </div>
+  )}
 </Layout>

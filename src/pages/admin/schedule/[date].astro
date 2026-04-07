@@ -15,6 +15,8 @@ import {
   type PlannerBreak
 } from '../../../lib/break-planner';
 import { coverCandidatesForBreak, loadWeekSummaryByDate, warningsForShift } from '../../../lib/admin-schedule';
+import ErrorState from '../../../components/ErrorState.astro';
+import { friendlyDbError } from '../../../lib/errors';
 import { loadAreas, loadMembers, loadPermissions, loadShiftCoverPriorityRows, loadStatuses } from '../../../lib/lookups';
 import Runsheet from '../../../components/Runsheet.astro';
 import ShiftTable from '../../../components/admin/ShiftTable.astro';
@@ -102,11 +104,24 @@ type BreakListRow = {
 const breakPanelBaseUrl = `/admin/schedule/${date}?panel=breaks`;
 const showBreakPlanning = Astro.url.searchParams.get('panel') === 'breaks';
 
-const DB = await getDB();
+let pageError: ReturnType<typeof friendlyDbError> | null = null;
+let weekSummaryByDate = new Map<string, { shiftCount: number; workingCount: number }>();
 
-const scheduleId = await ensureScheduleId(DB, date);
+let shifts: ShiftRow[] = [];
+let breaks: BreakRow[] = [];
+let workBlocks: WorkBlockRow[] = [];
+let members: Member[] = [];
+let areas: Area[] = [];
+let statuses: Status[] = [];
+let shiftCoverPriorityRows: Array<{ shift_id: number; member_id: number; priority: number; name: string }> = [];
+let perms: Array<{ member_id: number; area_key: string }> = [];
 
-const shifts = (await DB.prepare(
+try {
+  const DB = await getDB();
+
+  const scheduleId = await ensureScheduleId(DB, date);
+
+  shifts = (await DB.prepare(
   `SELECT s.id, s.work_block_id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
    FROM shifts s
    JOIN members m ON m.id = s.member_id
@@ -114,7 +129,7 @@ const shifts = (await DB.prepare(
    ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC`
 ).bind(scheduleId).all()).results as ShiftRow[];
 
-const breaks = (await DB.prepare(
+  breaks = (await DB.prepare(
   `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
           coverm.name AS cover_member_name
    FROM breaks b
@@ -124,13 +139,25 @@ const breaks = (await DB.prepare(
    ORDER BY b.start_time ASC`
 ).bind(scheduleId).all()).results as BreakRow[];
 
-const workBlocks = (await DB.prepare(
+  workBlocks = (await DB.prepare(
   `SELECT wb.id, wb.schedule_id, wb.member_id, m.name AS member_name, wb.start_time, wb.end_time, wb.total_minutes
    FROM work_blocks wb
    JOIN members m ON m.id = wb.member_id
    WHERE wb.schedule_id=?
    ORDER BY wb.start_time ASC, m.name COLLATE NOCASE ASC`
 ).bind(scheduleId).all()).results as WorkBlockRow[];
+
+  [members, areas, statuses, shiftCoverPriorityRows, perms] = await Promise.all([
+    loadMembers(DB, { activeOnly: true }) as Promise<Member[]>,
+    loadAreas(DB) as Promise<Area[]>,
+    loadStatuses(DB) as Promise<Status[]>,
+    loadShiftCoverPriorityRows(DB),
+    loadPermissions(DB)
+  ]);
+  weekSummaryByDate = await loadWeekSummaryByDate(DB, startOfWeek(date), weekDatesFor(date)[6] ?? date);
+} catch (error) {
+  pageError = friendlyDbError(error);
+}
 
 const breaksByShift = new Map<number, BreakRow[]>();
 for (const b of breaks) {
@@ -146,13 +173,6 @@ for (const b of breaks) {
   breaksByWorkBlock.set(b.work_block_id, arr);
 }
 
-const [members, areas, statuses, shiftCoverPriorityRows, perms] = await Promise.all([
-  loadMembers(DB, { activeOnly: true }) as Promise<Member[]>,
-  loadAreas(DB) as Promise<Area[]>,
-  loadStatuses(DB) as Promise<Status[]>,
-  loadShiftCoverPriorityRows(DB),
-  loadPermissions(DB)
-]);
 const permsByMember = new Map<number, Set<string>>();
 for (const p of perms) {
   const set = permsByMember.get(p.member_id) ?? new Set<string>();
@@ -310,7 +330,6 @@ const weekDates = weekDatesFor(date);
 const previousWeekDate = addDays(weekStart, -7);
 const nextWeekDate = addDays(weekStart, 7);
 const weekEnd = weekDates[6] ?? date;
-const weekSummaryByDate = await loadWeekSummaryByDate(DB, weekStart, weekEnd);
 
 const coverCandidatesByBreakId = new Map<number, Member[]>();
 if (showBreakPlanning) {
@@ -334,6 +353,11 @@ if (showBreakPlanning) {
 
 <Layout title={`Schedule ${date} | Bunrun`}>
   <script src="/js/schedule-time.js?v=4" defer></script>
+  {pageError ? (
+    <div class="px-3 py-10">
+      <ErrorState title={pageError.title} message={pageError.message} details={pageError.details} />
+    </div>
+  ) : (
   <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -541,4 +565,5 @@ if (showBreakPlanning) {
       });
     });
   </script>
+  )}
 </Layout>
