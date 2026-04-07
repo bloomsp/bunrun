@@ -3,7 +3,8 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { isBreakPreference } from '../../../lib/member-config';
-import { getPositiveInt, getReturnTo, getString, getTrimmedString, isISODate } from '../../../lib/http';
+import { getPositiveInt, getReturnTo, getString, getTrimmedString } from '../../../lib/http';
+import { loadAreaKeys } from '../../../lib/repositories';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -30,8 +31,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const DB = await getDB();
 
-  const areaRows = (await DB.prepare('SELECT key FROM areas').all()).results as any[];
-  const known = new Set(areaRows.map((r) => r.key as string));
+  const known = await loadAreaKeys(DB);
 
   for (const k of selectedAreas) {
     if (!known.has(k)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${k}` });

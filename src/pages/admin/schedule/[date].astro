@@ -4,8 +4,7 @@ export const prerender = false;
 import Layout from '../../../layouts/Layout.astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
-import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
-import { breakAllowanceMinutes } from '../../../lib/breaks';
+import { operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { addDays, ensureScheduleId, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
 import {
   activeWorkingShiftForMember,
@@ -17,7 +16,6 @@ import {
 } from '../../../lib/break-planner';
 import { coverCandidatesForBreak, loadWeekSummaryByDate, warningsForShift } from '../../../lib/admin-schedule';
 import { loadAreas, loadMembers, loadPermissions, loadShiftCoverPriorityRows, loadStatuses } from '../../../lib/lookups';
-import { activeShiftAtTime } from '../../../lib/work-blocks';
 import Runsheet from '../../../components/Runsheet.astro';
 import ShiftTable from '../../../components/admin/ShiftTable.astro';
 import BreakTimeline from '../../../components/admin/BreakTimeline.astro';

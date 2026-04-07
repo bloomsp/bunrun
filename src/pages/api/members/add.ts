@@ -3,6 +3,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { isBreakPreference } from '../../../lib/member-config';
+import { loadAreaKeys } from '../../../lib/repositories';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -22,8 +23,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const DB = await getDB();
-  const areaRows = (await DB.prepare('SELECT key FROM areas').all()).results as Array<{ key: string }>;
-  const known = new Set(areaRows.map((row) => row.key));
+  const known = await loadAreaKeys(DB);
 
   for (const areaKey of selectedAreas) {
     if (!known.has(areaKey)) return redirectWithMessage('/admin/members', { error: `Unknown area: ${areaKey}` });
@@ -51,11 +51,12 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (memberId > 0 && !allSelected) {
-    for (const areaKey of selectedAreas) {
-      await DB.prepare('INSERT OR IGNORE INTO member_area_permissions (member_id, area_key) VALUES (?, ?)')
-        .bind(memberId, areaKey)
-        .run();
-    }
+    await DB.batch(
+      selectedAreas.map((areaKey) =>
+        DB.prepare('INSERT OR IGNORE INTO member_area_permissions (member_id, area_key) VALUES (?, ?)')
+          .bind(memberId, areaKey)
+      )
+    );
   }
 
   return redirectWithMessage(returnTo, { notice: 'Member added' });

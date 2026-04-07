@@ -6,6 +6,7 @@ import { isCoverAssignmentValid } from '../../../lib/break-planner';
 import { getPositiveInt, getReturnTo, getString, isISODate } from '../../../lib/http';
 import { loadPlannerScheduleData } from '../../../lib/planner-data';
 import { generateBestBreakPlanForBlock } from '../../../lib/break-generation';
+import { loadWorkBlockById, loadShiftsForWorkBlock } from '../../../lib/repositories';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -21,20 +22,15 @@ export const POST: APIRoute = async ({ request }) => {
 
   const DB = await getDB();
 
-  const block = (await DB.prepare(
-    `SELECT wb.id, wb.schedule_id, wb.member_id, wb.start_time, wb.end_time, wb.total_minutes, m.break_preference
-     FROM work_blocks wb
-     JOIN members m ON m.id = wb.member_id
-     WHERE wb.id=?`
-  ).bind(workBlockId).first()) as any;
+  const block = await loadWorkBlockById(DB, workBlockId);
   if (!block) return redirectWithMessage(returnTo, { error: 'Work block not found' });
 
-  const { planner, shifts, breaks: existingBreaks } = await loadPlannerScheduleData(DB, block.schedule_id, {
+  const { planner, breaks: existingBreaks } = await loadPlannerScheduleData(DB, block.schedule_id!, {
     preferredCoverersFor: { workBlockId }
   });
 
-  const blockShifts = shifts
-    .filter((shift) => shift.work_block_id === workBlockId && shift.status_key === 'working')
+  const blockShifts = (await loadShiftsForWorkBlock(DB, workBlockId))
+    .filter((shift) => shift.status_key === 'working')
     .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
   if (blockShifts.length === 0) return redirectWithMessage(returnTo, { error: 'No working shifts found for this work block' });
 

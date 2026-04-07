@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 
 import { POST as loginPOST } from '../src/pages/api/login.ts';
 import { POST as assignCoverPOST } from '../src/pages/api/breaks/assign-cover.ts';
+import { POST as autofixPOST } from '../src/pages/api/breaks/autofix.ts';
 import { POST as autogenPOST } from '../src/pages/api/breaks/autogen.ts';
 import { POST as memberUpdatePOST } from '../src/pages/api/members/update.ts';
+import { POST as copyDayPOST } from '../src/pages/api/schedule/copy-day.ts';
 import { POST as shiftUpdatePOST } from '../src/pages/api/shifts/update.ts';
 import { adminRequest, installTestDB, installWorkBlockHooks, resetRouteTestGlobals, RouteDB } from './helpers/route-test-helpers.ts';
 
@@ -128,6 +130,18 @@ test('members-update route persists member changes and permission batch updates'
   assert.ok(db.batches.some((batch) => batch.some((stmt) => stmt.sql.includes('DELETE FROM member_area_permissions WHERE member_id=?') && stmt.args[0] === 42)));
 });
 
+test('breaks-autofix route rejects invalid dates before DB access', async () => {
+  const response = await autofixPOST({
+    request: adminRequest('https://example.test/api/breaks/autofix', {
+      date: 'not-a-date',
+      returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Invalid\+date/);
+});
+
 test('breaks-autogen route rejects a work block with no working shifts', async () => {
   const db = new RouteDB();
   db.firstHandlers.set('FROM work_blocks wb', {
@@ -159,6 +173,20 @@ test('breaks-autogen route rejects a work block with no working shifts', async (
 
   assert.equal(response.status, 303);
   assert.match(response.headers.get('Location') ?? '', /error=No\+working\+shifts\+found\+for\+this\+work\+block/);
+});
+
+test('copy-day route rejects same source and target date', async () => {
+  installTestDB(new RouteDB());
+
+  const response = await copyDayPOST({
+    request: adminRequest('https://example.test/api/schedule/copy-day', {
+      sourceDate: '2026-04-07',
+      targetDate: '2026-04-07'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Source\+and\+target\+day\+must\+be\+different/);
 });
 
 test('shift-update route clears overlapping cover assignments when marking a shift sick', async () => {
