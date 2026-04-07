@@ -5,8 +5,11 @@ import { POST as loginPOST } from '../src/pages/api/login.ts';
 import { POST as assignCoverPOST } from '../src/pages/api/breaks/assign-cover.ts';
 import { POST as autofixPOST } from '../src/pages/api/breaks/autofix.ts';
 import { POST as autogenPOST } from '../src/pages/api/breaks/autogen.ts';
+import { POST as autogenAllPOST } from '../src/pages/api/breaks/autogen-all.ts';
 import { POST as memberUpdatePOST } from '../src/pages/api/members/update.ts';
 import { POST as copyDayPOST } from '../src/pages/api/schedule/copy-day.ts';
+import { POST as copyWeekPOST } from '../src/pages/api/schedule/copy-week.ts';
+import { POST as shiftUpsertPOST } from '../src/pages/api/shifts/upsert.ts';
 import { POST as shiftUpdatePOST } from '../src/pages/api/shifts/update.ts';
 import { adminRequest, installTestDB, installWorkBlockHooks, resetRouteTestGlobals, RouteDB } from './helpers/route-test-helpers.ts';
 
@@ -187,6 +190,58 @@ test('copy-day route rejects same source and target date', async () => {
 
   assert.equal(response.status, 303);
   assert.match(response.headers.get('Location') ?? '', /error=Source\+and\+target\+day\+must\+be\+different/);
+});
+
+test('autogen-all route rejects invalid mode values', async () => {
+  const response = await autogenAllPOST({
+    request: adminRequest('https://example.test/api/breaks/autogen-all', {
+      date: '2026-04-07',
+      mode: 'bad-mode',
+      returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Invalid\+mode/);
+});
+
+test('copy-week route rejects when source and target are in the same week', async () => {
+  installTestDB(new RouteDB());
+
+  const response = await copyWeekPOST({
+    request: adminRequest('https://example.test/api/schedule/copy-week', {
+      sourceWeekDate: '2026-04-07',
+      targetWeekDate: '2026-04-09'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Source\+and\+target\+week\+must\+be\+different/);
+});
+
+test('shifts-upsert route rejects overlapping shifts for the same member', async () => {
+  const db = new RouteDB();
+  db.firstHandlers.set('SELECT all_areas FROM members WHERE id=?', { all_areas: 1 });
+  db.firstHandlers.set('SELECT id FROM schedules WHERE date=?', { id: 50 });
+  db.allHandlers.set('SELECT id, member_id, home_area_key, status_key, start_time, end_time FROM shifts WHERE schedule_id=? AND member_id=?', [
+    { id: 1, member_id: 7, home_area_key: 'registers', status_key: 'working', start_time: '09:00', end_time: '12:00' }
+  ]);
+  installTestDB(db);
+
+  const response = await shiftUpsertPOST({
+    request: adminRequest('https://example.test/api/shifts/upsert', {
+      date: '2026-04-07',
+      memberId: '7',
+      homeAreaKey: 'registers',
+      statusKey: 'working',
+      shiftRole: 'normal',
+      startTime: '11:00',
+      endTime: '14:00'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Shift\+overlaps\+an\+existing\+shift/);
 });
 
 test('shift-update route clears overlapping cover assignments when marking a shift sick', async () => {
