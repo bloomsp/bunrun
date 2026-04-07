@@ -1,12 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { POST as loginPOST } from '../src/pages/api/login.ts';
 import { POST as assignCoverPOST } from '../src/pages/api/breaks/assign-cover.ts';
+import { POST as autogenPOST } from '../src/pages/api/breaks/autogen.ts';
+import { POST as memberUpdatePOST } from '../src/pages/api/members/update.ts';
 import { POST as shiftUpdatePOST } from '../src/pages/api/shifts/update.ts';
 import { adminRequest, installTestDB, installWorkBlockHooks, resetRouteTestGlobals, RouteDB } from './helpers/route-test-helpers.ts';
 
 test.afterEach(() => {
   resetRouteTestGlobals();
+});
+
+test('login route rejects invalid content type before env checks', async () => {
+  const response = await loginPOST({
+    request: new Request('https://example.test/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'admin', password: 'x' })
+    })
+  } as any);
+
+  assert.equal(response.status, 400);
+  assert.equal(await response.text(), 'Invalid form submission');
 });
 
 test('assign-cover route persists a valid cover selection', async () => {
@@ -89,6 +105,60 @@ test('assign-cover route rejects an unavailable cover selection', async () => {
   assert.equal(response.status, 303);
   assert.match(response.headers.get('Location') ?? '', /error=Selected\+cover\+member\+is\+not\+available/);
   assert.equal(db.runs.length, 0);
+});
+
+test('members-update route persists member changes and permission batch updates', async () => {
+  const db = new RouteDB();
+  db.allHandlers.set('SELECT key FROM areas', [{ key: 'registers' }, { key: 'service-desk' }]);
+  installTestDB(db);
+
+  const response = await memberUpdatePOST({
+    request: adminRequest('https://example.test/api/members/update', {
+      memberId: '42',
+      name: 'Alex',
+      defaultAreaKey: 'registers',
+      breakPreference: '15+30',
+      returnTo: '/admin/members'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('Location'), '/admin/members?notice=Member+updated');
+  assert.ok(db.runs.some((run) => run.sql.includes('UPDATE members SET name=?, all_areas=?, default_area_key=?, break_preference=? WHERE id=?') && run.args[0] === 'Alex'));
+  assert.ok(db.batches.some((batch) => batch.some((stmt) => stmt.sql.includes('DELETE FROM member_area_permissions WHERE member_id=?') && stmt.args[0] === 42)));
+});
+
+test('breaks-autogen route rejects a work block with no working shifts', async () => {
+  const db = new RouteDB();
+  db.firstHandlers.set('FROM work_blocks wb', {
+    id: 15,
+    schedule_id: 99,
+    member_id: 10,
+    start_time: '06:00',
+    end_time: '12:00',
+    total_minutes: 360,
+    break_preference: '15+30'
+  });
+  db.allHandlers.set('FROM shifts WHERE schedule_id=?', [
+    { id: 1, work_block_id: 15, member_id: 10, home_area_key: 'registers', status_key: 'sick', shift_role: 'normal', start_time: '06:00', end_time: '12:00' }
+  ]);
+  db.allHandlers.set('SELECT id, all_areas FROM members', [{ id: 10, all_areas: 1 }]);
+  db.allHandlers.set('SELECT member_id, area_key FROM member_area_permissions', []);
+  db.allHandlers.set('SELECT key, min_staff FROM areas', [{ key: 'registers', min_staff: 1 }]);
+  db.allHandlers.set('FROM breaks b\n       JOIN shifts s ON s.id = b.shift_id', []);
+  db.allHandlers.set('SELECT shift_id, member_id, priority FROM shift_cover_priorities', []);
+  installTestDB(db);
+
+  const response = await autogenPOST({
+    request: adminRequest('https://example.test/api/breaks/autogen', {
+      date: '2026-04-07',
+      workBlockId: '15',
+      returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=No\+working\+shifts\+found\+for\+this\+work\+block/);
 });
 
 test('shift-update route clears overlapping cover assignments when marking a shift sick', async () => {
