@@ -244,3 +244,135 @@ test('assignBestCovers does not reuse the same member for overlapping pending br
   const result = assignBestCovers(context, [], pendingBreaks);
   assert.notEqual(result.get(21), result.get(22));
 });
+
+test('cross-area cover is allowed when permission exists and minimum staffing still holds', () => {
+  const context = buildBaseContext({
+    shifts: [
+      {
+        id: 1,
+        member_id: 101,
+        home_area_key: 'registers',
+        status_key: 'working',
+        shift_role: 'normal',
+        start_time: '06:00',
+        end_time: '12:00'
+      },
+      {
+        id: 2,
+        member_id: 202,
+        home_area_key: 'service-desk',
+        status_key: 'working',
+        shift_role: 'normal',
+        start_time: '06:00',
+        end_time: '12:00'
+      },
+      {
+        id: 3,
+        member_id: 303,
+        home_area_key: 'service-desk',
+        status_key: 'working',
+        shift_role: 'normal',
+        start_time: '06:00',
+        end_time: '12:00'
+      }
+    ],
+    members: [
+      { id: 101, all_areas: 1 },
+      { id: 202, all_areas: 0 },
+      { id: 303, all_areas: 1 }
+    ],
+    perms: [{ member_id: 202, area_key: 'registers' }],
+    minByArea: new Map([
+      ['registers', 0],
+      ['service-desk', 1]
+    ])
+  });
+
+  const targetBreak: PlannerBreak = {
+    id: 30,
+    work_block_id: 1,
+    shift_id: 1,
+    start_time: '09:00',
+    duration_minutes: 15,
+    cover_member_id: null,
+    off_member_id: 101,
+    off_shift_id: 1,
+    off_area_key: 'registers'
+  };
+
+  assert.equal(isCoverAssignmentValid(context, [], targetBreak, 202), true);
+  assert.ok(listEligibleCoverOptions(context, [], targetBreak).some((row) => row.memberId === 202));
+});
+
+test('non-overlapping pending breaks may reuse the same best coverer', () => {
+  const context = buildBaseContext({
+    shifts: [
+      {
+        id: 1,
+        member_id: 101,
+        home_area_key: 'registers',
+        status_key: 'working',
+        shift_role: 'normal',
+        start_time: '06:00',
+        end_time: '12:00'
+      },
+      {
+        id: 2,
+        member_id: 202,
+        home_area_key: 'registers',
+        status_key: 'working',
+        shift_role: 'floater',
+        start_time: '06:00',
+        end_time: '12:00'
+      },
+      {
+        id: 3,
+        member_id: 303,
+        home_area_key: 'registers',
+        status_key: 'working',
+        shift_role: 'normal',
+        start_time: '06:00',
+        end_time: '12:00'
+      }
+    ],
+    members: [
+      { id: 101, all_areas: 1 },
+      { id: 202, all_areas: 1 },
+      { id: 303, all_areas: 1 }
+    ],
+    perms: [],
+    minByArea: new Map([
+      ['registers', 1],
+      ['service-desk', 0]
+    ])
+  });
+
+  const pendingBreaks: PlannerBreak[] = [
+    {
+      id: 41,
+      work_block_id: 1,
+      shift_id: 1,
+      start_time: '09:00',
+      duration_minutes: 15,
+      cover_member_id: null,
+      off_member_id: 101,
+      off_shift_id: 1,
+      off_area_key: 'registers'
+    },
+    {
+      id: 42,
+      work_block_id: 2,
+      shift_id: 3,
+      start_time: '09:30',
+      duration_minutes: 15,
+      cover_member_id: null,
+      off_member_id: 303,
+      off_shift_id: 3,
+      off_area_key: 'registers'
+    }
+  ];
+
+  const result = assignBestCovers(context, [], pendingBreaks);
+  assert.equal(result.get(41), 202);
+  assert.equal(result.get(42), 202);
+});
