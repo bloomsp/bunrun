@@ -5,6 +5,7 @@ import Layout from '../../layouts/Layout.astro';
 import { requireRole } from '../../lib/auth';
 import { getDB } from '../../lib/db';
 import { BREAK_PREFERENCES } from '../../lib/member-config';
+import { loadAreas, loadMembers, loadPermissions } from '../../lib/lookups';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
@@ -32,10 +33,14 @@ let dbError: string | null = null;
 
 try {
   const DB = await getDB();
-  members = (await DB.prepare('SELECT id, name, active, all_areas, default_area_key, break_preference FROM members ORDER BY name COLLATE NOCASE ASC').all())
-    .results as Member[];
-  areas = (await DB.prepare('SELECT key, label FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
-  perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as Permission[];
+  const [memberRows, areaRows, permissionRows] = await Promise.all([
+    loadMembers(DB, { includeBreakPreference: true }),
+    loadAreas(DB),
+    loadPermissions(DB)
+  ]);
+  members = memberRows as Member[];
+  areas = areaRows.map((row) => ({ key: row.key, label: row.label }));
+  perms = permissionRows as Permission[];
 } catch (e: any) {
   dbError = e?.message ?? String(e);
 }

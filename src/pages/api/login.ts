@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { cookieForRole, clearRoleCookie } from '../../lib/auth';
+import { cookieForRole, clearRoleCookie, isSecureRequest } from '../../lib/auth';
 
 function badRequest(msg: string) {
   return new Response(msg, { status: 400 });
@@ -45,8 +45,8 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const headers = new Headers();
-  const secureCookie = new URL(request.url).protocol === 'https:';
-  headers.append('Set-Cookie', clearRoleCookie());
+  const secureCookie = isSecureRequest(request);
+  headers.append('Set-Cookie', clearRoleCookie({ secure: secureCookie }));
   headers.append('Set-Cookie', cookieForRole(role, { secure: secureCookie }));
   headers.set('Location', role === 'admin' ? '/admin' : '/view');
 

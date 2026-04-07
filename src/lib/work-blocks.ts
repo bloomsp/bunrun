@@ -1,5 +1,12 @@
 import { parseHHMM } from './time';
 
+function workBlockTestHooks() {
+  return (globalThis as any).__bunrunWorkBlockTestHooks as {
+    recomputeWorkBlocksForSchedule?: (DB: D1Database, scheduleId: number) => Promise<void> | void;
+    clearMemberBreakPlanForSchedule?: (DB: D1Database, scheduleId: number, memberId: number) => Promise<void> | void;
+  } | undefined;
+}
+
 export type WorkBlock = {
   id: number;
   schedule_id: number;
@@ -82,6 +89,11 @@ export function buildPendingWorkBlocks(shifts: WorkBlockShift[]): PendingWorkBlo
 }
 
 export async function recomputeWorkBlocksForSchedule(DB: D1Database, scheduleId: number) {
+  const hook = workBlockTestHooks()?.recomputeWorkBlocksForSchedule;
+  if (hook) {
+    await hook(DB, scheduleId);
+    return;
+  }
   const shifts = (
     await DB.prepare(
       `SELECT id, schedule_id, member_id, status_key, home_area_key, start_time, end_time, shift_minutes, work_block_id
@@ -104,18 +116,20 @@ export async function recomputeWorkBlocksForSchedule(DB: D1Database, scheduleId:
       .all()
   ).results as Array<{ id: number; shift_id: number; start_time: string }>;
 
-  await DB.prepare('UPDATE shifts SET work_block_id=NULL WHERE schedule_id=?').bind(scheduleId).run();
-  await DB.prepare(
-    `UPDATE breaks
-     SET work_block_id=NULL
-     WHERE id IN (
-       SELECT b.id
-       FROM breaks b
-       JOIN shifts s ON s.id = b.shift_id
-       WHERE s.schedule_id=?
-     )`
-  ).bind(scheduleId).run();
-  await DB.prepare('DELETE FROM work_blocks WHERE schedule_id=?').bind(scheduleId).run();
+  await DB.batch([
+    DB.prepare('UPDATE shifts SET work_block_id=NULL WHERE schedule_id=?').bind(scheduleId),
+    DB.prepare(
+      `UPDATE breaks
+       SET work_block_id=NULL
+       WHERE id IN (
+         SELECT b.id
+         FROM breaks b
+         JOIN shifts s ON s.id = b.shift_id
+         WHERE s.schedule_id=?
+       )`
+    ).bind(scheduleId),
+    DB.prepare('DELETE FROM work_blocks WHERE schedule_id=?').bind(scheduleId)
+  ]);
 
   const pendingBlocks = buildPendingWorkBlocks(shifts);
   const shiftsById = new Map<number, WorkBlockShift>(shifts.map((shift) => [shift.id, shift]));
@@ -130,24 +144,38 @@ export async function recomputeWorkBlocksForSchedule(DB: D1Database, scheduleId:
     const workBlockId = Number((insert as any)?.meta?.last_row_id ?? 0);
     if (!workBlockId) continue;
 
+    const shiftUpdates = [];
     for (const shiftId of pending.shiftIds) {
-      await DB.prepare('UPDATE shifts SET work_block_id=? WHERE id=?').bind(workBlockId, shiftId).run();
+      shiftUpdates.push(DB.prepare('UPDATE shifts SET work_block_id=? WHERE id=?').bind(workBlockId, shiftId));
       const shift = shiftsById.get(shiftId);
       if (shift) shift.work_block_id = workBlockId;
     }
+    if (shiftUpdates.length > 0) {
+      await DB.batch(shiftUpdates);
+    }
   }
 
+  const breakUpdates = [];
   for (const row of breaks) {
     const oldShift = shiftsById.get(row.shift_id);
     if (!oldShift) continue;
     const activeShift = activeShiftAtTime(shifts, oldShift.member_id, row.start_time) ?? oldShift;
-    await DB.prepare('UPDATE breaks SET shift_id=?, work_block_id=? WHERE id=?')
-      .bind(activeShift.id, activeShift.work_block_id ?? null, row.id)
-      .run();
+    breakUpdates.push(
+      DB.prepare('UPDATE breaks SET shift_id=?, work_block_id=? WHERE id=?')
+        .bind(activeShift.id, activeShift.work_block_id ?? null, row.id)
+    );
+  }
+  if (breakUpdates.length > 0) {
+    await DB.batch(breakUpdates);
   }
 }
 
 export async function clearMemberBreakPlanForSchedule(DB: D1Database, scheduleId: number, memberId: number) {
+  const hook = workBlockTestHooks()?.clearMemberBreakPlanForSchedule;
+  if (hook) {
+    await hook(DB, scheduleId, memberId);
+    return;
+  }
   await DB.prepare(
     `DELETE FROM breaks
      WHERE id IN (

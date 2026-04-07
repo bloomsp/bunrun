@@ -1,10 +1,17 @@
 # bunrun
 
-Break coordination tool for the Service Desk team.
+Break coordination and roster management tool for the Service Desk team.
 
 ## User documentation
 
-See [USER_GUIDE.md](./USER_GUIDE.md) for end-user documentation, business-facing break logic notes, and day-to-day operating guidance.
+See [USER_GUIDE.md](./USER_GUIDE.md) for end-user documentation, break logic notes, and day-to-day operating guidance.
+
+Current capabilities include:
+- daily and weekly roster management
+- member and area administration
+- break generation for continuous work blocks
+- cover assignment and validation
+- read-only reporting plus print/PDF views
 
 ## Dev setup
 
@@ -30,6 +37,12 @@ Set:
 
 ```bash
 npm run dev
+```
+
+### 4) Test
+
+```bash
+npm test
 ```
 
 ## Deployment

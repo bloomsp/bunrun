@@ -1,9 +1,9 @@
 import type { APIRoute } from 'astro';
-import { clearRoleCookie } from '../../lib/auth';
+import { clearRoleCookie, isSecureRequest } from '../../lib/auth';
 
-export const POST: APIRoute = async () => {
+export const POST: APIRoute = async ({ request }) => {
   const headers = new Headers();
-  headers.append('Set-Cookie', clearRoleCookie());
+  headers.append('Set-Cookie', clearRoleCookie({ secure: isSecureRequest(request) }));
   headers.set('Location', '/');
   return new Response(null, { status: 302, headers });
 };

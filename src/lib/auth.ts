@@ -1,5 +1,7 @@
 export type AuthRole = 'view' | 'admin';
 
+const COOKIE_BASE = 'Path=/; HttpOnly; SameSite=Lax';
+
 function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
   const out: Record<string, string> = {};
@@ -37,12 +39,17 @@ export function requireRole(request: Request, role: AuthRole): { ok: true } | { 
   return { ok: true };
 }
 
+export function isSecureRequest(request: Request) {
+  return new URL(request.url).protocol === 'https:';
+}
+
 export function cookieForRole(role: AuthRole, opts?: { secure?: boolean }) {
   const maxAge = 60 * 60 * 12; // 12 hours
   const secure = opts?.secure ?? false;
-  return `bunrun_role=${role}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+  return `bunrun_role=${role}; ${COOKIE_BASE}; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 
-export function clearRoleCookie() {
-  return `bunrun_role=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`;
+export function clearRoleCookie(opts?: { secure?: boolean }) {
+  const secure = opts?.secure ?? false;
+  return `bunrun_role=; ${COOKIE_BASE}; Max-Age=0${secure ? '; Secure' : ''}`;
 }

@@ -69,7 +69,7 @@ export function formatLongDateLabel(dateYYYYMMDD: string): string {
   }).format(new Date(`${dateYYYYMMDD}T12:00:00${BRISBANE_OFFSET}`));
 }
 
-async function ensureScheduleId(DB: D1Database, date: string): Promise<number> {
+export async function ensureScheduleId(DB: D1Database, date: string): Promise<number> {
   await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
   const row = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as { id: number } | null;
   if (!row?.id) throw new Error(`Unable to load schedule for ${date}`);

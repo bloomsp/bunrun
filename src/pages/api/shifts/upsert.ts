@@ -3,19 +3,21 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { parseHHMM } from '../../../lib/time';
+import { ensureScheduleId } from '../../../lib/schedule';
 import { findOverlappingShift } from '../../../lib/shifts';
 import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
 import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
+import { getPositiveInt, getString, isISODate } from '../../../lib/http';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
   const form = await request.formData();
-  const date = (form.get('date') || '').toString();
-  const memberId = Number(form.get('memberId'));
-  const homeAreaKey = (form.get('homeAreaKey') || '').toString();
-  const statusKey = (form.get('statusKey') || '').toString();
+  const date = getString(form, 'date');
+  const memberId = getPositiveInt(form, 'memberId');
+  const homeAreaKey = getString(form, 'homeAreaKey');
+  const statusKey = getString(form, 'statusKey');
   const shiftRole = ((form.get('shiftRole') || 'normal').toString() === 'floater' ? 'floater' : 'normal');
 
   const startTimeRaw = (form.get('startTime') || '').toString();
@@ -29,8 +31,8 @@ export const POST: APIRoute = async ({ request }) => {
   const startTime = startTimeRaw || `${startHH}:${startMM}`;
   const endTime = endTimeRaw || `${endHH}:${endMM}`;
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
-  if (!Number.isFinite(memberId) || memberId <= 0) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid member' });
+  if (!isISODate(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
+  if (memberId == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid member' });
 
   const startMin = parseHHMM(startTime);
   const endMin = parseHHMM(endTime);
@@ -46,9 +48,7 @@ export const POST: APIRoute = async ({ request }) => {
     return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: permissionError });
   }
 
-  await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
-  const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
-  const scheduleId = sched.id as number;
+  const scheduleId = await ensureScheduleId(DB, date);
 
   const existingShifts = (
     await DB.prepare(

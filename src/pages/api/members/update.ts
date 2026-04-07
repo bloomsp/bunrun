@@ -3,21 +3,22 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
 import { isBreakPreference } from '../../../lib/member-config';
+import { getPositiveInt, getReturnTo, getString, getTrimmedString, isISODate } from '../../../lib/http';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
   const form = await request.formData();
-  const memberId = Number(form.get('memberId'));
-  const name = (form.get('name') || '').toString().trim();
+  const memberId = getPositiveInt(form, 'memberId');
+  const name = getTrimmedString(form, 'name');
   const selectedAreas = form.getAll('areas').map((v) => v.toString());
-  const defaultAreaKeyRaw = (form.get('defaultAreaKey') || '').toString().trim();
+  const defaultAreaKeyRaw = getTrimmedString(form, 'defaultAreaKey');
   const defaultAreaKey = defaultAreaKeyRaw === '' ? null : defaultAreaKeyRaw;
-  const breakPreference = (form.get('breakPreference') || '15+30').toString();
-  const returnTo = (form.get('returnTo') || '/admin/members').toString();
+  const breakPreference = getString(form, 'breakPreference', '15+30');
+  const returnTo = getReturnTo(form, '/admin/members');
 
-  if (!Number.isFinite(memberId) || memberId <= 0) {
+  if (memberId == null) {
     return redirectWithMessage('/admin/members', { error: 'Invalid member' });
   }
   if (!name) {
@@ -50,14 +51,16 @@ export const POST: APIRoute = async ({ request }) => {
     return redirectWithMessage('/admin/members', { error: `Could not update member: ${msg}` });
   }
 
-  await DB.prepare('DELETE FROM member_area_permissions WHERE member_id=?').bind(memberId).run();
+  const statements = [DB.prepare('DELETE FROM member_area_permissions WHERE member_id=?').bind(memberId)];
   if (!allSelected) {
     for (const k of selectedAreas) {
-      await DB.prepare('INSERT OR IGNORE INTO member_area_permissions (member_id, area_key) VALUES (?, ?)')
-        .bind(memberId, k)
-        .run();
+      statements.push(
+        DB.prepare('INSERT OR IGNORE INTO member_area_permissions (member_id, area_key) VALUES (?, ?)')
+          .bind(memberId, k)
+      );
     }
   }
+  await DB.batch(statements);
 
   return redirectWithMessage(returnTo, { notice: 'Member updated' });
 };

@@ -11,6 +11,9 @@ export type Env = {
 };
 
 export async function getDB(): Promise<D1Database> {
+  const testDB = (globalThis as any).__bunrunTestDB as D1Database | undefined;
+  if (testDB) return testDB;
+
   try {
     // Only works in the Cloudflare runtime (Pages/Workers).
     const mod = await import('cloudflare:workers');

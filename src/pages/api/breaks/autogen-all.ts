@@ -2,9 +2,11 @@ import type { APIRoute } from 'astro';
 import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { redirectWithMessage } from '../../../lib/redirect';
-import { candidateOffsets, generateBreakTemplate, proposeBreakTimes } from '../../../lib/autogen';
-import { assignBestCovers, buildPlannerContext, isCoverAssignmentValid, type PlannerBreak } from '../../../lib/break-planner';
-import { activeShiftAtTime } from '../../../lib/work-blocks';
+import { isCoverAssignmentValid, type PlannerBreak } from '../../../lib/break-planner';
+import { getReturnTo, getString, isISODate } from '../../../lib/http';
+import { loadPlannerScheduleData } from '../../../lib/planner-data';
+import { generateBestBreakPlanForBlock } from '../../../lib/break-generation';
+import { ensureScheduleId } from '../../../lib/schedule';
 
 type WorkBlockRow = {
   id: number;
@@ -21,17 +23,15 @@ export const POST: APIRoute = async ({ request }) => {
   if (!guard.ok) return guard.redirect;
 
   const form = await request.formData();
-  const date = (form.get('date') || '').toString();
-  const mode = (form.get('mode') || 'missing').toString();
-  const returnTo = (form.get('returnTo') || `/admin/schedule/${date}?panel=breaks#breaks`).toString();
+  const date = getString(form, 'date');
+  const mode = getString(form, 'mode', 'missing');
+  const returnTo = getReturnTo(form, `/admin/schedule/${date}?panel=breaks#breaks`);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(returnTo, { error: 'Invalid date' });
+  if (!isISODate(date)) return redirectWithMessage(returnTo, { error: 'Invalid date' });
   if (mode !== 'missing' && mode !== 'overwrite') return redirectWithMessage(returnTo, { error: 'Invalid mode' });
 
   const DB = await getDB();
-  const sched = (await DB.prepare('SELECT id FROM schedules WHERE date=?').bind(date).first()) as any;
-  if (!sched) return redirectWithMessage(returnTo, { error: 'Schedule not found' });
-  const scheduleId = sched.id as number;
+  const scheduleId = await ensureScheduleId(DB, date);
 
   const blocks = (await DB.prepare(
     `SELECT wb.id, wb.schedule_id, wb.member_id, wb.start_time, wb.end_time, wb.total_minutes, m.break_preference
@@ -41,43 +41,11 @@ export const POST: APIRoute = async ({ request }) => {
      ORDER BY wb.start_time ASC, wb.id ASC`
   ).bind(scheduleId).all()).results as WorkBlockRow[];
 
-  const shifts = (await DB.prepare(
-    `SELECT id, work_block_id, member_id, home_area_key, status_key, shift_role, start_time, end_time, shift_minutes
-     FROM shifts
-     WHERE schedule_id=?`
-  ).bind(scheduleId).all()).results as any[];
-
-  const members = (await DB.prepare('SELECT id, all_areas FROM members').all()).results as any[];
-  const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
-  const areas = (await DB.prepare('SELECT key, min_staff FROM areas').all()).results as any[];
-  const minByArea = new Map<string, number>(areas.map((a) => [a.key, Number(a.min_staff ?? 0)]));
-  const preferredCovererRows = (
-    await DB.prepare('SELECT shift_id, member_id, priority FROM shift_cover_priorities ORDER BY shift_id ASC, priority ASC').all()
-  ).results as Array<{ shift_id: number; member_id: number; priority: number }>;
-  const preferredRankByShiftId = new Map<number, Map<number, number>>();
-  for (const row of preferredCovererRows) {
-    const ranks = preferredRankByShiftId.get(row.shift_id) ?? new Map<number, number>();
-    ranks.set(row.member_id, ranks.size);
-    preferredRankByShiftId.set(row.shift_id, ranks);
-  }
-
-  const planner = buildPlannerContext({
-    shifts,
-    members,
-    perms,
-    minByArea,
-    preferredRankByShiftId
-  });
+  const { planner, shifts, breaks: existingBreaks } = await loadPlannerScheduleData(DB, scheduleId);
 
   let plannedBreaks: PlannerBreak[] = mode === 'overwrite'
     ? []
-    : ((await DB.prepare(
-      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
-              s.member_id AS off_member_id, s.home_area_key AS off_area_key
-       FROM breaks b
-       JOIN shifts s ON s.id = b.shift_id
-       WHERE s.schedule_id=?`
-    ).bind(scheduleId).all()).results as PlannerBreak[]);
+    : existingBreaks;
 
   const statements = mode === 'overwrite'
     ? [DB.prepare('DELETE FROM breaks WHERE work_block_id IN (SELECT id FROM work_blocks WHERE schedule_id=?)').bind(scheduleId)]
@@ -88,62 +56,17 @@ export const POST: APIRoute = async ({ request }) => {
     if (mode === 'missing' && plannedBreaks.some((row) => row.work_block_id === block.id)) continue;
 
     const blockShifts = shifts
-      .filter((shift: any) => shift.work_block_id === block.id && shift.status_key === 'working')
-      .sort((a: any, b: any) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
+      .filter((shift) => shift.work_block_id === block.id && shift.status_key === 'working')
+      .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.id - b.id);
     if (blockShifts.length === 0) continue;
-    const blockAreaKeys = new Set(blockShifts.map((shift: any) => shift.home_area_key));
 
-    const durations = generateBreakTemplate(Number(block.total_minutes ?? 0), (block.break_preference as any) ?? '15+30');
-    let bestPendingBreaks: PlannerBreak[] = [];
-    let bestAssignments = new Map<number, number | null>();
-    let bestMissingCount = Number.POSITIVE_INFINITY;
-    let bestGeneratedCount = -1;
-
-    for (const offset of candidateOffsets(0)) {
-      const areaBreaks = plannedBreaks
-        .filter((row) => row.work_block_id !== block.id && blockAreaKeys.has(row.off_area_key))
-        .map((row) => ({ start_time: row.start_time, duration_minutes: row.duration_minutes }));
-      const proposed = proposeBreakTimes(block as any, durations, { offsetMinutes: offset, existingBreaks: areaBreaks });
-      const pendingBreaks: PlannerBreak[] = proposed.flatMap((row, index) => {
-        const activeShift = activeShiftAtTime(blockShifts, block.member_id, row.start_time);
-        if (!activeShift) return [];
-        return [{
-          id: -(block.id * 10 + index + 1),
-          work_block_id: block.id,
-          shift_id: activeShift.id,
-          start_time: row.start_time,
-          duration_minutes: row.duration_minutes,
-          cover_member_id: null,
-          off_member_id: block.member_id,
-          off_shift_id: activeShift.id,
-          off_area_key: activeShift.home_area_key
-        }];
-      });
-
-      const assignments = assignBestCovers(
-        planner,
-        plannedBreaks.filter((row) => row.work_block_id !== block.id),
-        pendingBreaks
-      );
-      const candidateBreaks = pendingBreaks.map((row) => ({
-        ...row,
-        cover_member_id: assignments.get(row.id) ?? null
-      }));
-      const missingCount = (durations.length - pendingBreaks.length) + candidateBreaks.reduce(
-        (count, row) => count + (isCoverAssignmentValid(planner, [...plannedBreaks.filter((item) => item.work_block_id !== block.id), ...candidateBreaks], row, row.cover_member_id) ? 0 : 1),
-        0
-      );
-      if (
-        pendingBreaks.length > bestGeneratedCount ||
-        (pendingBreaks.length === bestGeneratedCount && missingCount < bestMissingCount)
-      ) {
-        bestPendingBreaks = pendingBreaks;
-        bestAssignments = assignments;
-        bestMissingCount = missingCount;
-        bestGeneratedCount = pendingBreaks.length;
-        if (pendingBreaks.length === durations.length && missingCount === 0) break;
-      }
-    }
+    const { pendingBreaks: bestPendingBreaks, assignments: bestAssignments } = generateBestBreakPlanForBlock({
+      block,
+      blockShifts,
+      planner,
+      existingBreaks: plannedBreaks,
+      excludeWorkBlockId: block.id
+    });
 
     for (const row of bestPendingBreaks) {
       const coverMemberId = bestAssignments.get(row.id) ?? null;

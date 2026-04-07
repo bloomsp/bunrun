@@ -6,25 +6,24 @@ import { parseHHMM } from '../../../lib/time';
 import { findOverlappingShift, shiftRange } from '../../../lib/shifts';
 import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
 import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
+import { getPositiveInt, getString, getUniquePositiveInts, isISODate } from '../../../lib/http';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
 
   const form = await request.formData();
-  const date = (form.get('date') || '').toString();
-  const shiftId = Number(form.get('shiftId'));
-  const homeAreaKey = (form.get('homeAreaKey') || '').toString();
-  const statusKey = (form.get('statusKey') || '').toString();
+  const date = getString(form, 'date');
+  const shiftId = getPositiveInt(form, 'shiftId');
+  const homeAreaKey = getString(form, 'homeAreaKey');
+  const statusKey = getString(form, 'statusKey');
   const shiftRole = ((form.get('shiftRole') || 'normal').toString() === 'floater' ? 'floater' : 'normal');
   const startTime = (form.get('startTime') || '').toString();
   const endTime = (form.get('endTime') || '').toString();
-  const preferredCovererIds = form.getAll('preferredCovererIds')
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0);
+  const preferredCovererIds = getUniquePositiveInts(form, 'preferredCovererIds', 4);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
-  if (!Number.isFinite(shiftId) || shiftId <= 0) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid shift' });
+  if (!isISODate(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
+  if (shiftId == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid shift' });
 
   const startMin = parseHHMM(startTime);
   const endMin = parseHHMM(endTime);
@@ -46,7 +45,7 @@ export const POST: APIRoute = async ({ request }) => {
     return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'A member cannot be their own preferred coverer' });
   }
 
-  const uniquePreferredCovererIds = [...new Set(preferredCovererIds)].slice(0, 4);
+  const uniquePreferredCovererIds = preferredCovererIds;
 
   const siblingShifts = (
     await DB.prepare(
@@ -79,14 +78,14 @@ export const POST: APIRoute = async ({ request }) => {
   await recomputeWorkBlocksForSchedule(DB, current.schedule_id);
   await clearMemberBreakPlanForSchedule(DB, current.schedule_id, current.member_id);
 
-  await DB.prepare('DELETE FROM shift_cover_priorities WHERE shift_id=?').bind(shiftId).run();
+  const priorityStatements = [DB.prepare('DELETE FROM shift_cover_priorities WHERE shift_id=?').bind(shiftId)];
   for (const [index, memberId] of uniquePreferredCovererIds.entries()) {
-    await DB.prepare(
-      'INSERT INTO shift_cover_priorities (shift_id, member_id, priority) VALUES (?, ?, ?)'
-    )
-      .bind(shiftId, memberId, index + 1)
-      .run();
+    priorityStatements.push(
+      DB.prepare('INSERT INTO shift_cover_priorities (shift_id, member_id, priority) VALUES (?, ?, ?)')
+        .bind(shiftId, memberId, index + 1)
+    );
   }
+  await DB.batch(priorityStatements);
 
   if (statusKey === 'sick') {
     // Clear any cover assignments that overlap the now-sick shift window.
@@ -103,13 +102,17 @@ export const POST: APIRoute = async ({ request }) => {
           .all()
       ).results as Array<{ id: number; start_time: string; duration_minutes: number }>;
 
+      const clearingStatements = [];
       for (const assignment of coverAssignments) {
         const start = parseHHMM(assignment.start_time);
         if (start == null) continue;
         const end = start + Number(assignment.duration_minutes);
         if (start < sickRange.end && sickRange.start < end) {
-          await DB.prepare('UPDATE breaks SET cover_member_id=NULL WHERE id=?').bind(assignment.id).run();
+          clearingStatements.push(DB.prepare('UPDATE breaks SET cover_member_id=NULL WHERE id=?').bind(assignment.id));
         }
+      }
+      if (clearingStatements.length > 0) {
+        await DB.batch(clearingStatements);
       }
     }
   }

@@ -13,7 +13,8 @@
     "preview:worker": "npm run build:worker && wrangler dev --config dist/server/wrangler.json",
     "deploy:worker": "npm run build:worker && wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro",
-    "generate-types": "wrangler types"
+    "generate-types": "wrangler types",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.3",

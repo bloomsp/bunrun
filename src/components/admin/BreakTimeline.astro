@@ -1,0 +1,70 @@
+---
+export interface BreakListRow {
+  id: number;
+  start_time: string;
+  duration_minutes: number;
+  off_member_name: string;
+  off_area_label: string;
+  cover_member_name: string | null;
+  cover_shift_role: string | null;
+  area_covered: boolean;
+}
+
+interface Props {
+  rows: BreakListRow[];
+}
+
+const { rows } = Astro.props;
+---
+
+<div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="text-lg font-medium">Break timeline</h2>
+      <p class="mt-2 text-sm text-slate-600">Breaks in chronological order, including who is covering each break.</p>
+    </div>
+    <div class="text-sm text-slate-500">{rows.length} break{rows.length === 1 ? '' : 's'}</div>
+  </div>
+
+  {rows.length > 0 ? (
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[760px] border-separate border-spacing-y-2 text-sm">
+        <thead>
+          <tr class="text-left text-slate-600">
+            <th class="px-3">Time</th>
+            <th class="px-3">Member</th>
+            <th class="px-3">Area</th>
+            <th class="px-3">Duration</th>
+            <th class="px-3">Cover</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr class:list={['bg-slate-50', !row.cover_member_name && !row.area_covered && 'bg-rose-50']}>
+              <td class="px-3 py-3 font-medium">{row.start_time}</td>
+              <td class="px-3 py-3">{row.off_member_name}</td>
+              <td class="px-3 py-3">{row.off_area_label}</td>
+              <td class="px-3 py-3">{row.duration_minutes}m</td>
+              <td class="px-3 py-3">
+                {row.cover_member_name ? (
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span>{row.cover_member_name}</span>
+                    {row.cover_shift_role === 'floater' && (
+                      <span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Floater</span>
+                    )}
+                  </div>
+                ) : row.area_covered ? (
+                  <span class="font-medium text-emerald-700">Area covered</span>
+                ) : (
+                  <span class="font-medium text-rose-700">Missing cover</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div class="mt-4 text-sm text-slate-600">No breaks planned yet.</div>
+  )}
+</div>

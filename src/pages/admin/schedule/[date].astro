@@ -6,18 +6,23 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { formatDurationMinutes, operatingHoursFor, parseHHMM } from '../../../lib/time';
 import { breakAllowanceMinutes } from '../../../lib/breaks';
-import { addDays, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
+import { addDays, ensureScheduleId, formatLongDateLabel, formatShortDateLabel, startOfWeek, weekDatesFor } from '../../../lib/schedule';
 import {
   activeWorkingShiftForMember,
-  breakTargetRange,
   buildPlannerContext,
   isAreaCoveredWithoutAssignedCover,
   isCoverAssignmentValid,
-  listEligibleCoverOptions,
   type PlannerBreak
 } from '../../../lib/break-planner';
+import { coverCandidatesForBreak, loadWeekSummaryByDate, warningsForShift } from '../../../lib/admin-schedule';
+import { loadAreas, loadMembers, loadPermissions, loadShiftCoverPriorityRows, loadStatuses } from '../../../lib/lookups';
 import { activeShiftAtTime } from '../../../lib/work-blocks';
 import Runsheet from '../../../components/Runsheet.astro';
+import ShiftTable from '../../../components/admin/ShiftTable.astro';
+import BreakTimeline from '../../../components/admin/BreakTimeline.astro';
+import BreakPlanningSummary from '../../../components/admin/BreakPlanningSummary.astro';
+import ShiftDialogs from '../../../components/admin/ShiftDialogs.astro';
+import BreakPlanningPanel from '../../../components/admin/BreakPlanningPanel.astro';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
@@ -72,12 +77,6 @@ type WorkBlockRow = {
 
 type Status = { key: string; label: string; blocks_coverage: number };
 
-type WeekSummary = {
-  date: string;
-  shift_count: number;
-  working_count: number;
-};
-
 type ShiftView = ShiftRow & {
   start_minutes: number;
   end_minutes: number | null;
@@ -106,10 +105,7 @@ const showBreakPlanning = Astro.url.searchParams.get('panel') === 'breaks';
 
 const DB = await getDB();
 
-// Ensure schedule exists
-await DB.prepare('INSERT OR IGNORE INTO schedules (date) VALUES (?)').bind(date).run();
-const schedule = (await DB.prepare('SELECT id, date FROM schedules WHERE date=?').bind(date).first()) as any;
-const scheduleId = schedule.id as number;
+const scheduleId = await ensureScheduleId(DB, date);
 
 const shifts = (await DB.prepare(
   `SELECT s.id, s.work_block_id, s.member_id, m.name, s.home_area_key, s.status_key, s.shift_role, s.start_time, s.end_time, s.shift_minutes
@@ -151,24 +147,13 @@ for (const b of breaks) {
   breaksByWorkBlock.set(b.work_block_id, arr);
 }
 
-const members = (await DB.prepare(
-  'SELECT id, name, active, all_areas, default_area_key FROM members WHERE active=1 ORDER BY name COLLATE NOCASE ASC'
-).all()).results as Member[];
-
-const areas = (await DB.prepare('SELECT key, label, min_staff FROM areas ORDER BY label COLLATE NOCASE ASC').all()).results as Area[];
-
-const statuses = (await DB.prepare('SELECT key, label, blocks_coverage FROM statuses ORDER BY label COLLATE NOCASE ASC').all())
-  .results as Status[];
-const shiftCoverPriorityRows = (
-  await DB.prepare(
-    `SELECT scp.shift_id, scp.member_id, scp.priority, m.name
-     FROM shift_cover_priorities scp
-     JOIN members m ON m.id = scp.member_id
-     ORDER BY scp.shift_id ASC, scp.priority ASC`
-  ).all()
-).results as Array<{ shift_id: number; member_id: number; priority: number; name: string }>;
-
-const perms = (await DB.prepare('SELECT member_id, area_key FROM member_area_permissions').all()).results as any[];
+const [members, areas, statuses, shiftCoverPriorityRows, perms] = await Promise.all([
+  loadMembers(DB, { activeOnly: true }) as Promise<Member[]>,
+  loadAreas(DB) as Promise<Area[]>,
+  loadStatuses(DB) as Promise<Status[]>,
+  loadShiftCoverPriorityRows(DB),
+  loadPermissions(DB)
+]);
 const permsByMember = new Map<number, Set<string>>();
 for (const p of perms) {
   const set = permsByMember.get(p.member_id) ?? new Set<string>();
@@ -210,7 +195,7 @@ const shiftViews = shifts.map((s) => {
     start_minutes: startMinutes,
     end_minutes: endMinutes,
     computed_minutes: computedMinutes,
-    warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes) : [],
+    warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes, op) : [],
     status_label: statusByKey.get(s.status_key)?.label ?? s.status_key,
     role_label: s.shift_role === 'floater' ? 'Floater' : 'Normal',
     area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key,
@@ -326,72 +311,7 @@ const weekDates = weekDatesFor(date);
 const previousWeekDate = addDays(weekStart, -7);
 const nextWeekDate = addDays(weekStart, 7);
 const weekEnd = weekDates[6] ?? date;
-const weekSummaryRows = (
-  await DB.prepare(
-    `SELECT sc.date,
-            COUNT(sh.id) AS shift_count,
-            SUM(CASE WHEN sh.status_key='working' THEN 1 ELSE 0 END) AS working_count
-     FROM schedules sc
-     LEFT JOIN shifts sh ON sh.schedule_id = sc.id
-     WHERE sc.date >= ? AND sc.date <= ?
-     GROUP BY sc.date`
-  )
-    .bind(weekStart, weekEnd)
-    .all()
-).results as WeekSummary[];
-const weekSummaryByDate = new Map(
-  weekSummaryRows.map((row) => [
-    row.date,
-    {
-      shiftCount: Number(row.shift_count ?? 0),
-      workingCount: Number(row.working_count ?? 0)
-    }
-  ])
-);
-
-function warningsForShift(start: string, end: string, minutes: number): string[] {
-  const out: string[] = [];
-  if (minutes > 9 * 60) out.push('Long shift (> 9h)');
-  if (minutes > 10 * 60) out.push('Shift exceeds 10h max');
-  if (op) {
-    const s = parseHHMM(start);
-    const e = parseHHMM(end);
-    if (s != null && e != null) {
-      if (s < op.open || e > op.close) out.push('Outside operating hours');
-    }
-  }
-  return out;
-}
-
-function coverCandidatesForBreak(offShift: ShiftView, targetBreak: BreakRow) {
-  const plannerBreak = plannerBreaks.find((row) => row.id === targetBreak.id);
-  if (!plannerBreak) return [];
-  const validIds = new Set(
-    listEligibleCoverOptions(planner, plannerBreaks, plannerBreak)
-      .map((row) => row.memberId)
-      .filter((value): value is number => value != null)
-  );
-  return members
-    .filter((member) => validIds.has(member.id))
-    .sort((a, b) => {
-      const ranks = preferredRankByShiftId.get(offShift.id) ?? new Map<number, number>();
-      const aRank = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-      const bRank = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-      const targetRange = plannerBreak ? breakTargetRange(plannerBreak) : null;
-      const aFloater = targetRange
-        ? activeWorkingShiftForMember(planner, a.id, targetRange)?.shift_role === 'floater'
-        : false;
-      const bFloater = targetRange
-        ? activeWorkingShiftForMember(planner, b.id, targetRange)?.shift_role === 'floater'
-        : false;
-      if (aFloater !== bFloater) return aFloater ? -1 : 1;
-      if (aRank !== bRank) return aRank - bRank;
-      const aSameArea = workingShifts.some((shift) => shift.member_id === a.id && shift.home_area_key === offShift.home_area_key);
-      const bSameArea = workingShifts.some((shift) => shift.member_id === b.id && shift.home_area_key === offShift.home_area_key);
-      if (aSameArea !== bSameArea) return aSameArea ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-}
+const weekSummaryByDate = await loadWeekSummaryByDate(DB, weekStart, weekEnd);
 
 const coverCandidatesByBreakId = new Map<number, Member[]>();
 if (showBreakPlanning) {
@@ -399,7 +319,15 @@ if (showBreakPlanning) {
     for (const b of breaksByWorkBlock.get(block.id) ?? []) {
       const offShift = shiftViewById.get(b.shift_id);
       if (!offShift) continue;
-      coverCandidatesByBreakId.set(b.id, coverCandidatesForBreak(offShift, b));
+      coverCandidatesByBreakId.set(b.id, coverCandidatesForBreak({
+        planner,
+        plannerBreaks,
+        preferredRankByShiftId,
+        members,
+        workingShifts,
+        offShift,
+        targetBreakId: b.id
+      }));
     }
   }
 }
@@ -525,252 +453,9 @@ if (showBreakPlanning) {
       </section>
     </div>
 
-    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-medium">Shifts</h2>
-        <button
-          class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-          type="button"
-          data-open-add-shift
-        >
-          Add to Shift
-        </button>
-      </div>
-      <div class="mt-4 overflow-x-auto">
-        <table class="w-full min-w-[980px] border-separate border-spacing-y-2 text-sm">
-          <thead>
-            <tr class="text-left text-slate-600">
-              <th class="px-3">Member</th>
-              <th class="px-3">Area</th>
-              <th class="px-3">Role</th>
-              <th class="px-3">Status</th>
-              <th class="px-3">Start</th>
-              <th class="px-3">End</th>
-              <th class="px-3">Length</th>
-              <th class="px-3">Warnings</th>
-              <th class="px-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {shiftViews.map((s) => {
-              return (
-                <tr class="bg-slate-50">
-                  <td class="px-3 py-3 font-medium">{s.name}</td>
-                  <td class="px-3 py-3">{s.area_label}</td>
-                  <td class="px-3 py-3">
-                    {s.shift_role === 'floater' ? (
-                      <span class="rounded-full bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-900">Floater</span>
-                    ) : (
-                      <span class="text-slate-500">Normal</span>
-                    )}
-                  </td>
-                  <td class="px-3 py-3">
-                    {s.status_key === 'sick' ? (
-                      <span class="rounded bg-rose-100 px-2 py-1 font-medium text-rose-900">Sick</span>
-                    ) : (
-                      s.status_label
-                    )}
-                  </td>
-                  <td class="px-3 py-3">{s.start_time}</td>
-                  <td class="px-3 py-3">{s.end_time ?? '—'}</td>
-                  <td class="px-3 py-3">{formatDurationMinutes(s.computed_minutes)}</td>
-                  <td class="px-3 py-3">
-                    {s.warnings.length ? (
-                      <span class="rounded bg-amber-100 px-2 py-1 text-amber-900">{s.warnings.join(' · ')}</span>
-                    ) : (
-                      <span class="text-slate-500">—</span>
-                    )}
-                    {s.preferred_coverer_names.length > 0 && (
-                      <div class="mt-2 text-xs text-slate-500">Preferred coverers: {s.preferred_coverer_names.join(' → ')}</div>
-                    )}
-                  </td>
-                  <td class="px-3 py-3">
-                    <div class="flex items-center gap-2">
-                      <button
-                        class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100"
-                        type="button"
-                        data-open-edit-shift
-                        data-shift-id={s.id}
-                        data-member-id={s.member_id}
-                        data-member-name={s.name}
-                        data-home-area-key={s.home_area_key}
-                        data-status-key={s.status_key}
-                        data-shift-role={s.shift_role}
-                        data-start-time={s.start_time}
-                        data-end-time={s.end_time ?? ''}
-                        data-preferred-coverers={(preferredCovererIdsByShift.get(s.id) ?? []).join(',')}
-                      >
-                        Modify
-                      </button>
-                      <form method="post" action="/api/shifts/delete" onsubmit="return confirm('Delete this shift?')">
-                        <input type="hidden" name="shiftId" value={s.id} />
-                        <input type="hidden" name="date" value={date} />
-                        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100" type="submit">
-                          Delete
-                        </button>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+    <ShiftTable shifts={shiftViews} date={date} preferredCovererIdsByShift={preferredCovererIdsByShift} />
 
-      {shifts.length === 0 && <div class="mt-4 text-sm text-slate-600">No shifts yet.</div>}
-    </div>
-
-    <dialog class="w-full max-w-4xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-shift-dialog="add">
-      <form class="p-6" method="post" action="/api/shifts/upsert" data-shift-form>
-        <input type="hidden" name="date" value={date} />
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-xl font-semibold">Add member to shift</h2>
-            <p class="mt-1 text-sm text-slate-600">Add a member to the selected day without leaving the schedule page.</p>
-          </div>
-          <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
-        </div>
-
-        <div class="mt-5 grid gap-4">
-          <label class="block max-w-sm">
-            <div class="text-sm font-medium text-slate-800">Member</div>
-            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="memberId" required data-bunrun-member>
-              <option value="" selected>Select…</option>
-              {members.map((m) => (
-                <option value={m.id} data-default-area={m.default_area_key ?? ''}>{m.name}</option>
-              ))}
-            </select>
-          </label>
-
-          <div class="grid gap-4 sm:grid-cols-5">
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Area</div>
-              <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required data-bunrun-area>
-                {areas.map((a) => (
-                  <option value={a.key}>{a.label}</option>
-                ))}
-              </select>
-            </label>
-
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Status</div>
-              <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
-                {statuses.map((s) => (
-                  <option value={s.key} selected={s.key === 'working'}>{s.label}</option>
-                ))}
-              </select>
-            </label>
-
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Role</div>
-              <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
-                <option value="normal" selected>Normal</option>
-                <option value="floater">Floater</option>
-              </select>
-              <div class="mt-1 text-xs text-slate-500">Floaters are prioritised to cover other members where possible.</div>
-            </label>
-
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">Start</div>
-              <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value="06:00" required step="60" />
-            </label>
-
-            <label class="block">
-              <div class="text-sm font-medium text-slate-800">End</div>
-              <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value="15:00" required step="60" data-bunrun-endtime />
-            </label>
-          </div>
-        </div>
-
-        <div id="shiftComputed" class="mt-4 text-sm text-slate-600"></div>
-
-        <div class="mt-6 flex justify-end gap-3">
-          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
-          <button class="rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white hover:bg-emerald-800" type="submit" data-bunrun-add-shift>Submit</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog class="w-full max-w-4xl rounded-2xl border border-slate-200 p-0 shadow-2xl backdrop:bg-slate-900/40" data-shift-dialog="edit">
-      <form class="p-6" method="post" action="/api/shifts/update" data-shift-form>
-        <input type="hidden" name="date" value={date} />
-        <input type="hidden" name="shiftId" />
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-xl font-semibold">Edit shift</h2>
-            <p class="mt-1 text-sm text-slate-600" data-edit-shift-member>Update shift details and preferred coverers.</p>
-          </div>
-          <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
-        </div>
-
-        <div class="mt-5 grid gap-4 sm:grid-cols-6">
-          <label class="block sm:col-span-2">
-            <div class="text-sm font-medium text-slate-800">Area</div>
-            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="homeAreaKey" required>
-              {areas.map((a) => (
-                <option value={a.key}>{a.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label class="block">
-            <div class="text-sm font-medium text-slate-800">Status</div>
-            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="statusKey" required>
-              {statuses.map((st) => (
-                <option value={st.key}>{st.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label class="block">
-            <div class="text-sm font-medium text-slate-800">Role</div>
-            <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
-              <option value="normal">Normal</option>
-              <option value="floater">Floater</option>
-            </select>
-          </label>
-
-          <label class="block">
-            <div class="text-sm font-medium text-slate-800">Start</div>
-            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required step="60" />
-          </label>
-
-          <label class="block">
-            <div class="text-sm font-medium text-slate-800">End</div>
-            <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" required step="60" data-bunrun-endtime />
-          </label>
-        </div>
-
-        <div class="mt-5">
-          <div class="text-sm font-medium text-slate-800">Preferred coverers</div>
-          <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }, (_, index) => (
-              <label class="block">
-                <div class="text-xs text-slate-500">Priority {index + 1}</div>
-                <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="preferredCovererIds">
-                  <option value="">— none —</option>
-                  {members.map((member) => (
-                    <option value={member.id}>{member.name}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
-          <div class="mt-1 text-xs text-slate-500">The planner tries these members first, in order, when they are valid for the break.</div>
-        </div>
-
-        <div class="mt-4 text-sm text-slate-600">
-          Note: setting status to <b>Sick</b> removes their breaks and clears any cover assignments where they were covering others.
-        </div>
-        <div data-shiftWarn class="mt-3 text-sm"></div>
-
-        <div class="mt-6 flex justify-end gap-3">
-          <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
-          <button class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-800" type="submit">Save</button>
-        </div>
-      </form>
-    </dialog>
+    <ShiftDialogs date={date} members={members} areas={areas} statuses={statuses} />
 
     <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <Runsheet
@@ -784,269 +469,34 @@ if (showBreakPlanning) {
       />
     </div>
 
-    <div class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 class="text-lg font-medium">Break timeline</h2>
-          <p class="mt-2 text-sm text-slate-600">Breaks in chronological order, including who is covering each break.</p>
-        </div>
-        <div class="text-sm text-slate-500">{chronologicalBreakRows.length} break{chronologicalBreakRows.length === 1 ? '' : 's'}</div>
-      </div>
+    <BreakTimeline rows={chronologicalBreakRows} />
 
-      {chronologicalBreakRows.length > 0 ? (
-        <div class="mt-4 overflow-x-auto">
-          <table class="w-full min-w-[760px] border-separate border-spacing-y-2 text-sm">
-            <thead>
-              <tr class="text-left text-slate-600">
-                <th class="px-3">Time</th>
-                <th class="px-3">Member</th>
-                <th class="px-3">Area</th>
-                <th class="px-3">Duration</th>
-                <th class="px-3">Cover</th>
-              </tr>
-            </thead>
-            <tbody>
-              {chronologicalBreakRows.map((row) => (
-                <tr class:list={['bg-slate-50', !row.cover_member_name && !row.area_covered && 'bg-rose-50']}>
-                  <td class="px-3 py-3 font-medium">{row.start_time}</td>
-                  <td class="px-3 py-3">{row.off_member_name}</td>
-                  <td class="px-3 py-3">{row.off_area_label}</td>
-                  <td class="px-3 py-3">{row.duration_minutes}m</td>
-                  <td class="px-3 py-3">
-                    {row.cover_member_name ? (
-                      <div class="flex flex-wrap items-center gap-2">
-                        <span>{row.cover_member_name}</span>
-                        {row.cover_shift_role === 'floater' && (
-                          <span class="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Floater</span>
-                        )}
-                      </div>
-                    ) : row.area_covered ? (
-                      <span class="font-medium text-emerald-700">Area covered</span>
-                    ) : (
-                      <span class="font-medium text-rose-700">Missing cover</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div class="mt-4 text-sm text-slate-600">No breaks planned yet.</div>
-      )}
-    </div>
+    <BreakPlanningSummary
+      showBreakPlanning={showBreakPlanning}
+      date={date}
+      breakPanelUrl={breakPanelUrl}
+      workingShiftCount={workingShifts.length}
+      breakCount={breaks.length}
+      uncoveredCount={uncoveredBreaks.length}
+    />
 
-    <div id="breaks" class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 class="text-lg font-medium">Break planning</h2>
-          <p class="mt-2 text-sm text-slate-600">
-            {showBreakPlanning ? 'Add breaks and assign cover.' : 'Open the break planning workspace when you need to assign cover or edit breaks.'}
-          </p>
-        </div>
-        {showBreakPlanning ? (
-          <a class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${date}`}>
-            Close break planning
-          </a>
-        ) : (
-          <a class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" href={breakPanelUrl}>
-            Open break planning
-          </a>
-        )}
-      </div>
-
-      {!showBreakPlanning && (
-        <div class="mt-4 grid gap-3 sm:grid-cols-3">
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Working shifts</div>
-            <div class="mt-1 text-2xl font-semibold text-slate-900">{workingShifts.length}</div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Breaks planned</div>
-            <div class="mt-1 text-2xl font-semibold text-slate-900">{breaks.length}</div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Missing cover</div>
-            <div class="mt-1 text-2xl font-semibold text-slate-900">{uncoveredBreaks.length}</div>
-          </div>
-        </div>
-      )}
-
-      {showBreakPlanning && (
-        <>
-          {breakPlanningBlocks.length === 0 && (
-            <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              No continuous working blocks are currently available for break planning on this day. If this looks wrong, the roster may need its work blocks recomputed.
-            </div>
-          )}
-          <div class="mt-4 flex flex-wrap gap-2">
-            <form method="post" action="/api/breaks/autogen-all">
-              <input type="hidden" name="date" value={date} />
-              <input type="hidden" name="mode" value="overwrite" />
-              <input type="hidden" name="returnTo" value={breakPanelUrl} />
-              <button class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                Auto-generate ALL (overwrite)
-              </button>
-            </form>
-
-            <form method="post" action="/api/breaks/autogen-all">
-              <input type="hidden" name="date" value={date} />
-              <input type="hidden" name="mode" value="missing" />
-              <input type="hidden" name="returnTo" value={breakPanelUrl} />
-              <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" type="submit">
-                Auto-generate missing only
-              </button>
-            </form>
-
-            <form method="post" action="/api/breaks/revalidate">
-              <input type="hidden" name="date" value={date} />
-              <input type="hidden" name="returnTo" value={breakPanelUrl} />
-              <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" type="submit">
-                Revalidate
-              </button>
-            </form>
-
-            <form method="post" action="/api/breaks/autofix">
-              <input type="hidden" name="date" value={date} />
-              <input type="hidden" name="returnTo" value={breakPanelUrl} />
-              <button class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800" type="submit">
-                Auto-fix covers
-              </button>
-            </form>
-          </div>
-          <div class="mt-6 space-y-8">
-            {breakPlanningBlocks.map((block) => {
-              const rows = breaksByWorkBlock.get(block.id) ?? [];
-              const used = plannedBreakMinutesByWorkBlock.get(block.id) ?? 0;
-              const allowance = breakAllowanceMinutes(block.total_minutes);
-              const shiftSummary = block.shifts.map((shift) => `${shift.area_label} ${shift.start_time}-${shift.end_time ?? '—'}`).join(' · ');
-
-              return (
-                <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div class="font-semibold">{block.member_name}</div>
-                      <div class="text-sm text-slate-600">
-                        {block.start_time}–{block.end_time} · block {formatDurationMinutes(block.total_minutes)} · allowance {allowance}m · planned {used}m
-                      </div>
-                      <div class="mt-1 text-xs text-slate-500">{shiftSummary}</div>
-                    </div>
-                    <form method="post" action="/api/breaks/autogen">
-                      <input type="hidden" name="date" value={date} />
-                      <input type="hidden" name="workBlockId" value={block.id} />
-                      <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" type="submit">
-                        Auto-generate
-                      </button>
-                    </form>
-                  </div>
-
-                  <div class="mt-4 overflow-x-auto">
-                    <table class="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm">
-                      <thead>
-                        <tr class="text-left text-slate-600">
-                          <th class="px-3">Start</th>
-                          <th class="px-3">Area at break</th>
-                          <th class="px-3">Duration</th>
-                          <th class="px-3">Cover</th>
-                          <th class="px-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((b) => {
-                          const activeShift = shiftViewById.get(b.shift_id);
-                          return (
-                            <tr
-                              class={
-                                !(plannerBreakById.get(b.id) && isCoverAssignmentValid(planner, plannerBreaks, plannerBreakById.get(b.id)!, b.cover_member_id))
-                                  ? 'bg-rose-50'
-                                  : invalidReasonByBreakId.has(b.id)
-                                    ? 'bg-amber-50'
-                                    : 'bg-white'
-                              }
-                            >
-                              <td class="px-3 py-3">
-                                {b.start_time}
-                                {invalidReasonByBreakId.has(b.id) && (
-                                  <div class="mt-1 text-xs text-amber-900">{invalidReasonByBreakId.get(b.id)}</div>
-                                )}
-                              </td>
-                              <td class="px-3 py-3">{activeShift?.area_label ?? '—'}</td>
-                              <td class="px-3 py-3">{b.duration_minutes}m</td>
-                              <td class="px-3 py-3">
-                                <form method="post" action="/api/breaks/assign-cover" class="flex items-center gap-2">
-                                  <input type="hidden" name="date" value={date} />
-                                  <input type="hidden" name="breakId" value={b.id} />
-                                  <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                                  <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="coverMemberId">
-                                    <option value="" selected={b.cover_member_id == null}>
-                                      {areaCoveredByBreakId.get(b.id) ? 'Area covered' : '— missing cover —'}
-                                    </option>
-                                    {(coverCandidatesByBreakId.get(b.id) ?? []).map((cs) => (
-                                      <option value={cs.id} selected={b.cover_member_id === cs.id}>
-                                        {cs.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
-                                    Set
-                                  </button>
-                                </form>
-                              </td>
-                              <td class="px-3 py-3">
-                                <form method="post" action="/api/breaks/delete" onsubmit="return confirm('Delete this break?')">
-                                  <input type="hidden" name="date" value={date} />
-                                  <input type="hidden" name="breakId" value={b.id} />
-                                  <input type="hidden" name="returnTo" value={breakPanelUrl} />
-                                  <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
-                                    Delete
-                                  </button>
-                                </form>
-                              </td>
-                            </tr>
-                          );
-                        })}
-
-                        <tr class="bg-white">
-                          <td class="px-3 py-3" colspan="5">
-                            <form method="post" action="/api/breaks/add" class="flex flex-wrap items-center gap-2">
-                              <input type="hidden" name="date" value={date} />
-                              <input type="hidden" name="workBlockId" value={block.id} />
-                              <input type="hidden" name="returnTo" value={breakPanelUrl} />
-
-                              <div class="mr-2 text-sm font-medium text-slate-700">Add break</div>
-
-                              <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="hh" min="0" max="23" placeholder="10" required />
-                              <span class="text-slate-600">:</span>
-                              <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="mm" min="0" max="59" value="00" required />
-
-                              <select class="rounded-lg border border-slate-300 bg-white px-2 py-2" name="duration">
-                                {[15, 30, 45, 60].map((d) => (
-                                  <option value={d}>{d}m</option>
-                                ))}
-                              </select>
-
-                              <button class="rounded-lg bg-emerald-700 px-3 py-2 font-medium text-white hover:bg-emerald-800" type="submit">
-                                Add
-                              </button>
-                            </form>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {used > allowance && (
-                    <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-                      Planned break time exceeds allowance for this continuous work block.
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        </>
-      )}
+    <div class="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <BreakPlanningPanel
+        showBreakPlanning={showBreakPlanning}
+        breakPlanningBlocks={breakPlanningBlocks}
+        breaksByWorkBlock={breaksByWorkBlock}
+        plannedBreakMinutesByWorkBlock={plannedBreakMinutesByWorkBlock}
+        breakPanelUrl={breakPanelUrl}
+        date={date}
+        shiftViewById={shiftViewById}
+        isBreakValid={(breakId, coverMemberId) => {
+          const row = plannerBreakById.get(breakId);
+          return row ? isCoverAssignmentValid(planner, plannerBreaks, row, coverMemberId) : false;
+        }}
+        invalidReasonByBreakId={invalidReasonByBreakId}
+        areaCoveredByBreakId={areaCoveredByBreakId}
+        coverCandidatesByBreakId={coverCandidatesByBreakId}
+      />
     </div>
   </div>
   <script is:inline>

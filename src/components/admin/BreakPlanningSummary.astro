@@ -1,0 +1,49 @@
+---
+interface Props {
+  showBreakPlanning: boolean;
+  date: string;
+  breakPanelUrl: string;
+  workingShiftCount: number;
+  breakCount: number;
+  uncoveredCount: number;
+}
+
+const { showBreakPlanning, date, breakPanelUrl, workingShiftCount, breakCount, uncoveredCount } = Astro.props;
+---
+
+<div id="breaks" class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="text-lg font-medium">Break planning</h2>
+      <p class="mt-2 text-sm text-slate-600">
+        {showBreakPlanning ? 'Add breaks and assign cover.' : 'Open the break planning workspace when you need to assign cover or edit breaks.'}
+      </p>
+    </div>
+    {showBreakPlanning ? (
+      <a class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50" href={`/admin/schedule/${date}`}>
+        Close break planning
+      </a>
+    ) : (
+      <a class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" href={breakPanelUrl}>
+        Open break planning
+      </a>
+    )}
+  </div>
+
+  {!showBreakPlanning && (
+    <div class="mt-4 grid gap-3 sm:grid-cols-3">
+      <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Working shifts</div>
+        <div class="mt-1 text-2xl font-semibold text-slate-900">{workingShiftCount}</div>
+      </div>
+      <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Breaks planned</div>
+        <div class="mt-1 text-2xl font-semibold text-slate-900">{breakCount}</div>
+      </div>
+      <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Missing cover</div>
+        <div class="mt-1 text-2xl font-semibold text-slate-900">{uncoveredCount}</div>
+      </div>
+    </div>
+  )}
+</div>
