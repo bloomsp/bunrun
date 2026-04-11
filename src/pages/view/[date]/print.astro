@@ -8,7 +8,7 @@ import { requireRole } from '../../../lib/auth';
 import { getDB } from '../../../lib/db';
 import { friendlyDbError } from '../../../lib/errors';
 import { formatDurationMinutes } from '../../../lib/time';
-import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow } from '../../../lib/view-data';
+import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow, type BreakTakenRow, type BreakTakenSummary } from '../../../lib/view-data';
 
 const guard = requireRole(Astro.request, 'view');
 if (!guard.ok) return guard.redirect;
@@ -34,6 +34,16 @@ let groupedShifts: any[] = [];
 let memberSortedShifts: any[] = [];
 let chronologicalBreaks: BreakRow[] = [];
 let memberSortedBreaks: BreakRow[] = [];
+let breaksTakenRows: BreakTakenRow[] = [];
+let breakTakenSummary: BreakTakenSummary = {
+  totalBreaks: 0,
+  recordedBreaks: 0,
+  missingBreaks: 0,
+  onTimeBreaks: 0,
+  earlyBreaks: 0,
+  lateBreaks: 0,
+  averageVarianceAbsMinutes: null
+};
 let groupedBreaks: any[] = [];
 let areaCoveredByBreakId = new Map<number, boolean>();
 
@@ -48,6 +58,8 @@ try {
   memberSortedShifts,
   chronologicalBreaks,
   memberSortedBreaks,
+  breaksTakenRows,
+  breakTakenSummary,
   groupedBreaks,
   areaCoveredByBreakId
   } = await loadViewSchedulePageData(DB, date));
@@ -242,6 +254,48 @@ function coverLabel(row: BreakRow) {
             ))}
           </tbody>
         </table>
+      </div>
+    )}
+
+    {selectedReport === 'breaks-taken' && (
+      <div class="space-y-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm text-sm text-slate-700">
+          <div>Breaks planned: <span class="font-semibold text-slate-900">{breakTakenSummary.totalBreaks}</span></div>
+          <div>Actual times recorded: <span class="font-semibold text-slate-900">{breakTakenSummary.recordedBreaks}</span></div>
+          <div>Missing actual times: <span class="font-semibold text-slate-900">{breakTakenSummary.missingBreaks}</span></div>
+          <div>On time: <span class="font-semibold text-slate-900">{breakTakenSummary.onTimeBreaks}</span></div>
+          <div>Early: <span class="font-semibold text-slate-900">{breakTakenSummary.earlyBreaks}</span> · Late: <span class="font-semibold text-slate-900">{breakTakenSummary.lateBreaks}</span></div>
+          <div>Average variance: <span class="font-semibold text-slate-900">{breakTakenSummary.averageVarianceAbsMinutes != null ? `${breakTakenSummary.averageVarianceAbsMinutes}m` : '—'}</span></div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-slate-600">
+                <th class="px-3 py-2">Member</th>
+                <th class="px-3 py-2">Area</th>
+                <th class="px-3 py-2">Scheduled</th>
+                <th class="px-3 py-2">Actual</th>
+                <th class="px-3 py-2">Variance</th>
+                <th class="px-3 py-2">Duration</th>
+                <th class="px-3 py-2">Cover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breaksTakenRows.map((row) => (
+                <tr class="border-b border-slate-100 last:border-b-0">
+                  <td class="px-3 py-2">{row.off_member_name}</td>
+                  <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
+                  <td class="px-3 py-2">{row.start_time}</td>
+                  <td class="px-3 py-2">{row.actual_start_time ?? '—'}</td>
+                  <td class="px-3 py-2">{row.timing_label}</td>
+                  <td class="px-3 py-2">{row.duration_minutes}m</td>
+                  <td class="px-3 py-2">{coverLabel(row)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     )}
 

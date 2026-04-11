@@ -1,5 +1,6 @@
 import { buildPlannerContext, isAreaCoveredWithoutAssignedCover, type PlannerBreak } from './break-planner';
 import { addDays, ensureScheduleId, startOfWeek, weekDatesFor } from './schedule';
+import { parseHHMM } from './time';
 
 export const REPORTS = [
   { key: 'runsheet', label: 'Runsheet' },
@@ -7,7 +8,8 @@ export const REPORTS = [
   { key: 'shifts-by-member', label: 'Shifts by Member' },
   { key: 'breaks-by-area', label: 'Breaks by Area' },
   { key: 'breaks-chronological', label: 'Breaks by Time' },
-  { key: 'breaks-by-member', label: 'Breaks by Member' }
+  { key: 'breaks-by-member', label: 'Breaks by Member' },
+  { key: 'breaks-taken', label: 'Breaks Taken' }
 ] as const;
 
 export type ReportKey = typeof REPORTS[number]['key'];
@@ -28,12 +30,28 @@ export type BreakRow = {
   work_block_id: number | null;
   shift_id: number;
   start_time: string;
+  actual_start_time: string | null;
   duration_minutes: number;
   cover_member_id: number | null;
   off_member_name: string;
   off_area_key: string;
   cover_member_name: string | null;
   area_covered?: boolean;
+};
+
+export type BreakTakenRow = BreakRow & {
+  variance_minutes: number | null;
+  timing_label: string;
+};
+
+export type BreakTakenSummary = {
+  totalBreaks: number;
+  recordedBreaks: number;
+  missingBreaks: number;
+  onTimeBreaks: number;
+  earlyBreaks: number;
+  lateBreaks: number;
+  averageVarianceAbsMinutes: number | null;
 };
 
 export async function loadViewSchedulePageData(DB: D1Database, date: string) {
@@ -62,7 +80,7 @@ export async function loadViewSchedulePageData(DB: D1Database, date: string) {
        ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC, s.start_time ASC`
     ).bind(scheduleId).all().then((result) => result.results as ShiftRow[]),
     DB.prepare(
-      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.duration_minutes, b.cover_member_id,
+      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.actual_start_time, b.duration_minutes, b.cover_member_id,
               offm.name AS off_member_name, s.home_area_key AS off_area_key, coverm.name AS cover_member_name
        FROM breaks b
        JOIN shifts s ON s.id=b.shift_id
@@ -96,6 +114,37 @@ export async function loadViewSchedulePageData(DB: D1Database, date: string) {
   const memberSortedBreaks = breaks
     .slice()
     .sort((a, b) => a.off_member_name.localeCompare(b.off_member_name) || a.start_time.localeCompare(b.start_time));
+
+  const breaksTakenRows: BreakTakenRow[] = breaks
+    .slice()
+    .sort((a, b) => a.start_time.localeCompare(b.start_time) || a.off_member_name.localeCompare(b.off_member_name))
+    .map((row) => {
+      const scheduledMinutes = parseHHMM(row.start_time);
+      const actualMinutes = row.actual_start_time ? parseHHMM(row.actual_start_time) : null;
+      const variance = scheduledMinutes != null && actualMinutes != null ? actualMinutes - scheduledMinutes : null;
+      let timingLabel = 'Not recorded';
+      if (variance === 0) timingLabel = 'On time';
+      else if (variance != null && variance < 0) timingLabel = `${Math.abs(variance)}m early`;
+      else if (variance != null && variance > 0) timingLabel = `${variance}m late`;
+      return {
+        ...row,
+        variance_minutes: variance,
+        timing_label: timingLabel
+      };
+    });
+
+  const recordedBreaks = breaksTakenRows.filter((row) => row.actual_start_time != null);
+  const breakTakenSummary: BreakTakenSummary = {
+    totalBreaks: breaksTakenRows.length,
+    recordedBreaks: recordedBreaks.length,
+    missingBreaks: breaksTakenRows.length - recordedBreaks.length,
+    onTimeBreaks: recordedBreaks.filter((row) => row.variance_minutes === 0).length,
+    earlyBreaks: recordedBreaks.filter((row) => (row.variance_minutes ?? 0) < 0).length,
+    lateBreaks: recordedBreaks.filter((row) => (row.variance_minutes ?? 0) > 0).length,
+    averageVarianceAbsMinutes: recordedBreaks.length > 0
+      ? Math.round(recordedBreaks.reduce((sum, row) => sum + Math.abs(row.variance_minutes ?? 0), 0) / recordedBreaks.length)
+      : null
+  };
 
   const groupedBreaks = areas
     .map((area) => ({
@@ -154,6 +203,8 @@ export async function loadViewSchedulePageData(DB: D1Database, date: string) {
     memberSortedShifts,
     chronologicalBreaks,
     memberSortedBreaks,
+    breaksTakenRows,
+    breakTakenSummary,
     groupedBreaks,
     areaCoveredByBreakId
   };

@@ -218,6 +218,186 @@ If the member’s area still remains properly staffed during the break, the syst
 
 - `Area covered`
 
+## Planner Logic in Plain English
+
+This section describes what the planner actually does today.
+
+### Step 1. Build continuous work blocks
+
+The planner starts by looking only at `working` shifts.
+
+If the same member has back-to-back working shifts with no gap, Bunrun merges them into one continuous work block.
+
+Example:
+
+- `06:00-09:00` Registers
+- `09:00-12:00` Service Desk
+
+This becomes one continuous work block from `06:00-12:00`.
+
+If there is any gap, Bunrun creates a new work block.
+
+Example:
+
+- `06:00-09:00` Registers
+- `09:30-12:00` Service Desk
+
+This becomes two separate work blocks.
+
+### Step 2. Decide break entitlement from total continuous minutes
+
+Once the work block is built, Bunrun calculates the total continuous working time and assigns the break entitlement from that total.
+
+Current entitlement rules are:
+
+- less than 4 hours → no break
+- 4 hours up to 5 hours → one 15-minute break
+- more than 5 hours and less than 7 hours → one 15-minute break and one 30-minute break
+- 7 hours up to but not including 10 hours → two 15-minute breaks and one 30-minute break
+- 10 hours or more → two 15-minute breaks and two 30-minute breaks
+
+### Step 3. Apply the member’s break preference
+
+Bunrun does not change how many breaks a person gets.
+
+The break preference only changes the preferred order of those breaks.
+
+Current options are:
+
+- `15+30`
+- `30+15`
+- `30+30`
+
+In practice:
+
+- `15+30` keeps the standard ordering
+- `30+15` tries to place the 30-minute break earlier
+- `30+30` pushes 30-minute breaks earlier where the entitlement includes them
+
+If the entitlement is too small for the preference to matter, Bunrun falls back naturally to the available pattern.
+
+### Step 4. Propose break times inside the work block
+
+For each planned break, Bunrun tries to place it in a sensible operating window.
+
+The planner aims for each break to be:
+
+- at least about 2 hours after the previous work start or break
+- ideally about 2.5 hours after the previous work start or break
+- no later than about 3 hours after the previous work start or break
+- not inside the last hour of the work block
+
+It evaluates candidate start times in 15-minute increments.
+
+For each candidate time, it scores the option based on:
+
+- how close it is to the preferred timing
+- how much it overlaps with other already-planned breaks in the same area
+
+The planner tries a range of offsets around the preferred timing so it can find a better fit if an area is already busy.
+
+### Step 5. Attach each break to the active shift at that time
+
+A work block can span multiple areas.
+
+When Bunrun places a break, it attaches that break to whichever shift is active at the break start time.
+
+That means a break in the middle of a multi-area day is associated with the area the person is actually working in when the break begins.
+
+### Step 6. Work out whether the break can be left as `Area covered`
+
+Before Bunrun assigns a named coverer, it checks whether the break can safely run without naming a specific person.
+
+To do that, it calculates how many working shifts are active in each area during the break window, then subtracts the person who is going on break.
+
+If the area still remains at or above its configured minimum staffing, Bunrun can leave the break as:
+
+- `Area covered`
+
+This is intentional. It means a named cover is not operationally necessary.
+
+### Step 7. Find eligible named coverers
+
+If a named cover may be needed, Bunrun builds a list of valid cover options.
+
+A person is only eligible if all of these are true:
+
+- they are on a `working` shift
+- they are active during the break window
+- they are not the person taking the break
+- they are not already on break at that time
+- they are not already covering another break at that time
+- they can legally work the target area
+- assigning them would not break area minimum staffing rules elsewhere
+
+Area permission rules are:
+
+- if the member has `all_areas = 1`, they can cover any area
+- otherwise they must have an explicit permission for that area
+- if they are already rostered in the same area as the break, no area transfer is needed
+
+### Step 8. Rank valid coverers
+
+Once Bunrun has the valid options, it ranks them.
+
+The scoring intentionally prefers:
+
+1. leaving the break as `Area covered` when that is safe
+2. `Floater` shifts
+3. preferred coverers configured on the shift
+4. same-area or lower-disruption options
+5. other valid staff
+
+More specifically:
+
+- floaters get a strong preference
+- preferred coverers are ranked in the order stored on the shift
+- moving someone across areas is treated as slightly worse than keeping them in their home area
+
+### Step 9. Resolve multiple breaks together
+
+When Bunrun auto-generates or auto-fixes a set of breaks, it does not just choose each cover independently.
+
+It searches combinations of cover assignments across the pending breaks and tries to find the best overall result.
+
+This matters because:
+
+- the same coverer cannot be reused for overlapping breaks
+- one locally good assignment can block a better overall plan
+- a floater may need to be saved for the harder of two overlapping problems
+
+The planner prefers solutions that:
+
+- generate more of the required breaks
+- leave fewer breaks with invalid or missing cover
+- keep the overall assignment score lower
+
+### Step 10. Revalidate after changes
+
+Bunrun revalidates cover assignments whenever the relevant data changes.
+
+A previously valid cover can become invalid if:
+
+- a shift changes area, time, role, or status
+- someone is marked sick or otherwise becomes non-working
+- another break is added that overlaps
+- staffing minimums change
+- permissions change
+
+If a shift is changed significantly, Bunrun can clear that member’s break plan and related cover assignments so stale planning does not survive after roster edits.
+
+### Important practical behaviours
+
+These points are often the ones operators notice most:
+
+- only `working` shifts count for break generation and coverage
+- back-to-back working shifts are treated as one continuous work block
+- breaks are attached to the shift active at the break start time
+- a named cover is optional when minimum staffing still holds
+- preferred coverers help ranking, but they do not override validity rules
+- floaters are preferred, but not if assigning them would create a conflict or break staffing minimums
+- if no valid named cover exists, the break can remain uncovered or `Area covered` depending on staffing
+
 This means:
 
 - the area is still safe and compliant
@@ -272,6 +452,7 @@ The View page includes multiple reports:
 - Breaks by Area
 - Breaks by Time
 - Breaks by Member
+- Breaks Taken
 
 Each report has:
 
@@ -279,6 +460,31 @@ Each report has:
 - a Print/PDF option
 
 The print page also includes a `Back` button to return to the same report view.
+
+### Breaks Taken report
+
+The `Breaks Taken` report compares the planned break time against the actual time the break was taken.
+
+It shows:
+
+- member
+- area
+- scheduled break time
+- actual break time, if recorded
+- variance from plan, such as on time, early, or late
+- break duration
+- cover arrangement
+
+It also includes a summary so you can quickly see:
+
+- how many breaks were planned
+- how many actual break times were recorded
+- how many are still missing actual times
+- how many were taken on time
+- how many were early or late
+- the average variance from the scheduled time
+
+This is useful for spotting whether the day ran roughly to plan, where break timing drifted, and whether certain areas regularly push breaks earlier or later than intended.
 
 ## Runsheet
 

@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 
 import { POST as loginPOST } from '../src/pages/api/login.ts';
 import { POST as assignCoverPOST } from '../src/pages/api/breaks/assign-cover.ts';
+import { POST as areaAddPOST } from '../src/pages/api/areas/add.ts';
+import { POST as breakAddPOST } from '../src/pages/api/breaks/add.ts';
+import { POST as breakRecordTakenPOST } from '../src/pages/api/breaks/record-taken.ts';
 import { POST as autofixPOST } from '../src/pages/api/breaks/autofix.ts';
 import { POST as autogenPOST } from '../src/pages/api/breaks/autogen.ts';
 import { POST as autogenAllPOST } from '../src/pages/api/breaks/autogen-all.ts';
+import { POST as memberAddPOST } from '../src/pages/api/members/add.ts';
 import { POST as memberUpdatePOST } from '../src/pages/api/members/update.ts';
 import { POST as copyDayPOST } from '../src/pages/api/schedule/copy-day.ts';
 import { POST as copyWeekPOST } from '../src/pages/api/schedule/copy-week.ts';
@@ -110,6 +114,84 @@ test('assign-cover route rejects an unavailable cover selection', async () => {
   assert.equal(response.status, 303);
   assert.match(response.headers.get('Location') ?? '', /error=Selected\+cover\+member\+is\+not\+available/);
   assert.equal(db.runs.length, 0);
+});
+
+test('areas-add route reports duplicate key/name insert failures', async () => {
+  const db = new RouteDB();
+  db.run = async (sql: string, args: any[]) => {
+    db.runs.push({ sql, args });
+    if (sql.includes('INSERT INTO areas')) {
+      throw new Error('UNIQUE constraint failed: areas.key');
+    }
+    return { meta: { changes: 1, last_row_id: 1 } };
+  };
+  installTestDB(db);
+
+  const response = await areaAddPOST({
+    request: adminRequest('https://example.test/api/areas/add', {
+      key: 'registers',
+      label: 'Registers',
+      minStaff: '2'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=That\+area\+key\+or\+name\+is\+already\+in\+use/);
+});
+
+test('members-add route rejects unknown areas', async () => {
+  const db = new RouteDB();
+  db.allHandlers.set('SELECT key FROM areas', [{ key: 'registers' }]);
+  installTestDB(db);
+
+  const response = await memberAddPOST({
+    request: adminRequest('https://example.test/api/members/add', {
+      name: 'Jamie',
+      defaultAreaKey: 'registers',
+      breakPreference: '15+30',
+      returnTo: '/admin/members',
+      areas: 'service-desk'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Unknown\+area/);
+});
+
+test('breaks-add route rejects invalid times', async () => {
+  const response = await breakAddPOST({
+    request: adminRequest('https://example.test/api/breaks/add', {
+      date: '2026-04-07',
+      workBlockId: '12',
+      hh: '99',
+      mm: '00',
+      duration: '15',
+      returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get('Location') ?? '', /error=Invalid\+hour/);
+});
+
+test('breaks-record-taken route persists actual break time', async () => {
+  const db = new RouteDB();
+  db.firstHandlers.set('FROM breaks b', { id: 55 });
+  installTestDB(db);
+
+  const response = await breakRecordTakenPOST({
+    request: adminRequest('https://example.test/api/breaks/record-taken', {
+      date: '2026-04-07',
+      breakId: '55',
+      hh: '09',
+      mm: '12',
+      returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+    })
+  } as any);
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('Location'), '/admin/schedule/2026-04-07?panel=breaks&notice=Actual+break+time+recorded#breaks');
+  assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=? WHERE id=?') && run.args[0] === '09:12' && run.args[1] === 55));
 });
 
 test('members-update route persists member changes and permission batch updates', async () => {

@@ -27,6 +27,7 @@ interface BreakRow {
   id: number;
   shift_id: number;
   start_time: string;
+  actual_start_time: string | null;
   duration_minutes: number;
   cover_member_id: number | null;
 }
@@ -130,13 +131,14 @@ const {
             </div>
 
             <div class="mt-4 overflow-x-auto">
-              <table class="w-full min-w-[860px] border-separate border-spacing-y-2 text-sm">
+              <table class="w-full min-w-[1080px] border-separate border-spacing-y-2 text-sm">
                 <thead>
                   <tr class="text-left text-slate-600">
                     <th class="px-3">Start</th>
                     <th class="px-3">Area at break</th>
                     <th class="px-3">Duration</th>
                     <th class="px-3">Cover</th>
+                    <th class="px-3">Actual taken</th>
                     <th class="px-3"></th>
                   </tr>
                 </thead>
@@ -182,6 +184,43 @@ const {
                           </form>
                         </td>
                         <td class="px-3 py-3">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <form method="post" action="/api/breaks/record-taken" class="flex flex-wrap items-center gap-2">
+                              <input type="hidden" name="date" value={date} />
+                              <input type="hidden" name="breakId" value={b.id} />
+                              <input type="hidden" name="returnTo" value={breakPanelUrl} />
+                              {(() => {
+                                const actual = b.actual_start_time ?? b.start_time;
+                                const [hh = '', mm = ''] = actual.split(':');
+                                return (
+                                  <>
+                                    <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="hh" min="0" max="23" value={hh} required />
+                                    <span class="text-slate-600">:</span>
+                                    <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="mm" min="0" max="59" value={mm} required />
+                                  </>
+                                );
+                              })()}
+                              <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
+                                {b.actual_start_time ? 'Update' : 'Record'}
+                              </button>
+                            </form>
+                            {b.actual_start_time && (
+                              <form method="post" action="/api/breaks/record-taken">
+                                <input type="hidden" name="date" value={date} />
+                                <input type="hidden" name="breakId" value={b.id} />
+                                <input type="hidden" name="clear" value="1" />
+                                <input type="hidden" name="returnTo" value={breakPanelUrl} />
+                                <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">
+                                  Clear
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">
+                            {b.actual_start_time ? `Recorded: ${b.actual_start_time}` : 'No actual break time recorded yet'}
+                          </div>
+                        </td>
+                        <td class="px-3 py-3">
                           <form method="post" action="/api/breaks/delete" onsubmit="return confirm('Delete this break?')">
                             <input type="hidden" name="date" value={date} />
                             <input type="hidden" name="breakId" value={b.id} />
@@ -196,7 +235,7 @@ const {
                   })}
 
                   <tr class="bg-white">
-                    <td class="px-3 py-3" colspan="5">
+                    <td class="px-3 py-3" colspan="6">
                       <form method="post" action="/api/breaks/add" class="flex flex-wrap items-center gap-2">
                         <input type="hidden" name="date" value={date} />
                         <input type="hidden" name="workBlockId" value={block.id} />

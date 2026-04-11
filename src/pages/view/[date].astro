@@ -9,7 +9,7 @@ import { getDB } from '../../lib/db';
 import { friendlyDbError } from '../../lib/errors';
 import { formatDurationMinutes } from '../../lib/time';
 import { formatLongDateLabel, formatShortDateLabel } from '../../lib/schedule';
-import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow } from '../../lib/view-data';
+import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow, type BreakTakenRow, type BreakTakenSummary } from '../../lib/view-data';
 
 const guard = requireRole(Astro.request, 'view');
 if (!guard.ok) return guard.redirect;
@@ -43,6 +43,16 @@ let groupedShifts: any[] = [];
 let memberSortedShifts: any[] = [];
 let chronologicalBreaks: BreakRow[] = [];
 let memberSortedBreaks: BreakRow[] = [];
+let breaksTakenRows: BreakTakenRow[] = [];
+let breakTakenSummary: BreakTakenSummary = {
+  totalBreaks: 0,
+  recordedBreaks: 0,
+  missingBreaks: 0,
+  onTimeBreaks: 0,
+  earlyBreaks: 0,
+  lateBreaks: 0,
+  averageVarianceAbsMinutes: null
+};
 let groupedBreaks: any[] = [];
 let areaCoveredByBreakId = new Map<number, boolean>();
 
@@ -62,6 +72,8 @@ try {
   memberSortedShifts,
   chronologicalBreaks,
   memberSortedBreaks,
+  breaksTakenRows,
+  breakTakenSummary,
   groupedBreaks,
   areaCoveredByBreakId
   } = await loadViewSchedulePageData(DB, date));
@@ -312,6 +324,73 @@ function coverLabel(row: BreakRow) {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    )}
+
+    {selectedReport === 'breaks-taken' && (
+      <div class="mt-6 space-y-6">
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Breaks planned</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{breakTakenSummary.totalBreaks}</div>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Actual times recorded</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{breakTakenSummary.recordedBreaks}</div>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Missing actual times</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{breakTakenSummary.missingBreaks}</div>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">On time</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{breakTakenSummary.onTimeBreaks}</div>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Average variance</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900">{breakTakenSummary.averageVarianceAbsMinutes != null ? `${breakTakenSummary.averageVarianceAbsMinutes}m` : '—'}</div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+            <div><span class="font-medium text-slate-900">Early:</span> {breakTakenSummary.earlyBreaks}</div>
+            <div><span class="font-medium text-slate-900">Late:</span> {breakTakenSummary.lateBreaks}</div>
+            <div><span class="font-medium text-slate-900">Use:</span> compare scheduled vs actual break timing for operational drift.</div>
+          </div>
+
+          <div class="mt-4 overflow-x-auto">
+            <table class="w-full min-w-[980px] text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 text-left text-slate-600">
+                  <th class="px-3 py-2">Member</th>
+                  <th class="px-3 py-2">Area</th>
+                  <th class="px-3 py-2">Scheduled</th>
+                  <th class="px-3 py-2">Actual</th>
+                  <th class="px-3 py-2">Variance</th>
+                  <th class="px-3 py-2">Duration</th>
+                  <th class="px-3 py-2">Cover</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breaksTakenRows.map((row) => (
+                  <tr class="border-b border-slate-100 last:border-b-0">
+                    <td class="px-3 py-2">{row.off_member_name}</td>
+                    <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
+                    <td class="px-3 py-2">{row.start_time}</td>
+                    <td class="px-3 py-2">{row.actual_start_time ?? '—'}</td>
+                    <td class:list={[
+                      'px-3 py-2 font-medium',
+                      row.variance_minutes == null ? 'text-slate-500' : row.variance_minutes === 0 ? 'text-emerald-700' : row.variance_minutes > 0 ? 'text-amber-700' : 'text-sky-700'
+                    ]}>{row.timing_label}</td>
+                    <td class="px-3 py-2">{row.duration_minutes}m</td>
+                    <td class="px-3 py-2">{coverLabel(row)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     )}
