@@ -194,6 +194,40 @@ test('breaks-record-taken route persists actual break time', async () => {
   assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=? WHERE id=?') && run.args[0] === '09:12' && run.args[1] === 55));
 });
 
+test('breaks-record-taken route supports taken-now stamping', async () => {
+  const db = new RouteDB();
+  db.firstHandlers.set('FROM breaks b', { id: 56 });
+  installTestDB(db);
+
+  const realDateTimeFormat = Intl.DateTimeFormat;
+  Intl.DateTimeFormat = class extends realDateTimeFormat {
+    formatToParts() {
+      return [
+        { type: 'hour', value: '10' },
+        { type: 'literal', value: ':' },
+        { type: 'minute', value: '34' }
+      ] as Intl.DateTimeFormatPart[];
+    }
+  } as typeof Intl.DateTimeFormat;
+
+  try {
+    const response = await breakRecordTakenPOST({
+      request: adminRequest('https://example.test/api/breaks/record-taken', {
+        date: '2026-04-07',
+        breakId: '56',
+        takenNow: '1',
+        returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
+      })
+    } as any);
+
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('Location'), '/admin/schedule/2026-04-07?panel=breaks&notice=Actual+break+time+set+to+now#breaks');
+    assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=? WHERE id=?') && run.args[0] === '10:34' && run.args[1] === 56));
+  } finally {
+    Intl.DateTimeFormat = realDateTimeFormat;
+  }
+});
+
 test('members-update route persists member changes and permission batch updates', async () => {
   const db = new RouteDB();
   db.allHandlers.set('SELECT key FROM areas', [{ key: 'registers' }, { key: 'service-desk' }]);

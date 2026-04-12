@@ -5,6 +5,18 @@ import { getPositiveInt, getReturnTo, getString, isISODate } from '../../../lib/
 import { redirectWithMessage } from '../../../lib/redirect';
 import { toHHMM } from '../../../lib/time';
 
+function nowInBrisbaneHHMM() {
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Brisbane',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const hh = parts.find((part) => part.type === 'hour')?.value ?? '00';
+  const mm = parts.find((part) => part.type === 'minute')?.value ?? '00';
+  return `${hh}:${mm}`;
+}
+
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
   if (!guard.ok) return guard.redirect;
@@ -14,6 +26,7 @@ export const POST: APIRoute = async ({ request }) => {
   const breakId = getPositiveInt(form, 'breakId');
   const returnTo = getReturnTo(form, `/admin/schedule/${date}?panel=breaks#breaks`);
   const clear = getString(form, 'clear') === '1';
+  const takenNow = getString(form, 'takenNow') === '1';
 
   if (!isISODate(date)) return redirectWithMessage(returnTo, { error: 'Invalid date' });
   if (breakId == null) return redirectWithMessage(returnTo, { error: 'Invalid break' });
@@ -34,13 +47,25 @@ export const POST: APIRoute = async ({ request }) => {
     return redirectWithMessage(returnTo, { notice: 'Actual break time cleared' });
   }
 
-  const hh = Number(form.get('hh'));
-  const mm = Number(form.get('mm'));
-  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return redirectWithMessage(returnTo, { error: 'Invalid hour' });
-  if (!Number.isFinite(mm) || mm < 0 || mm > 59) return redirectWithMessage(returnTo, { error: 'Invalid minutes' });
+  const actualStartTime = takenNow
+    ? nowInBrisbaneHHMM()
+    : (() => {
+        const hh = Number(form.get('hh'));
+        const mm = Number(form.get('mm'));
+        if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
+        if (!Number.isFinite(mm) || mm < 0 || mm > 59) return null;
+        return toHHMM(hh * 60 + mm);
+      })();
 
-  const actualStartTime = toHHMM(hh * 60 + mm);
+  if (actualStartTime == null) {
+    const hh = Number(form.get('hh'));
+    const mm = Number(form.get('mm'));
+    if (!Number.isFinite(hh) || hh < 0 || hh > 23) return redirectWithMessage(returnTo, { error: 'Invalid hour' });
+    if (!Number.isFinite(mm) || mm < 0 || mm > 59) return redirectWithMessage(returnTo, { error: 'Invalid minutes' });
+    return redirectWithMessage(returnTo, { error: 'Invalid time' });
+  }
+
   await DB.prepare('UPDATE breaks SET actual_start_time=? WHERE id=?').bind(actualStartTime, breakId).run();
 
-  return redirectWithMessage(returnTo, { notice: 'Actual break time recorded' });
+  return redirectWithMessage(returnTo, { notice: takenNow ? 'Actual break time set to now' : 'Actual break time recorded' });
 };
