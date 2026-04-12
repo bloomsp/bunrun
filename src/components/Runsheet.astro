@@ -17,6 +17,8 @@ export type Break = {
   shift_id: number;
   start_time: string;
   duration_minutes: number;
+  actual_start_time?: string | null;
+  actual_start_source?: string | null;
   cover_member_name?: string | null;
   area_covered?: boolean;
 };
@@ -93,9 +95,19 @@ function breakMarker(duration: number, hasCover: boolean) {
   return 'X\nX\nX\nX';
 }
 
+function actualSourceMarker(duration: number, source?: string | null) {
+  const token = source === 'live' ? 'L' : source === 'manual' ? 'M' : '';
+  if (!token) return '';
+  if (duration <= 15) return token;
+  if (duration <= 30) return `${token}\n${token}`;
+  if (duration <= 45) return `${token}\n${token}\n${token}`;
+  return `${token}\n${token}\n${token}\n${token}`;
+}
+
 function breakTitle(b: Break) {
   const coverText = b.cover_member_name ? ` · Covered by ${b.cover_member_name}` : b.area_covered ? ' · Area covered' : '';
-  return `Break ${b.start_time} (${b.duration_minutes}m)${coverText}`;
+  const actualText = b.actual_start_time ? ` · Actual ${b.actual_start_time}${b.actual_start_source === 'live' ? ' [L]' : b.actual_start_source === 'manual' ? ' [M]' : ''}` : '';
+  return `Break ${b.start_time} (${b.duration_minutes}m)${coverText}${actualText}`;
 }
 
 function formatShiftLength(startTime: string, endTime: string | null) {
@@ -316,13 +328,24 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                         const bm = parseHHMM(b.start_time);
                         if (bm == null) return null;
                         return (
-                          <div
-                            class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
-                            style={`left: calc((${leftSlots(bm)} + 0.5) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
-                            title={breakTitle(b)}
-                          >
-                            {breakMarker(b.duration_minutes, Boolean(b.cover_member_name) || b.area_covered === true)}
-                          </div>
+                          <>
+                            <div
+                              class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-slate-900"
+                              style={`left: calc((${leftSlots(bm)} + 0.32) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
+                              title={breakTitle(b)}
+                            >
+                              {breakMarker(b.duration_minutes, Boolean(b.cover_member_name) || b.area_covered === true)}
+                            </div>
+                            {b.actual_start_time && (
+                              <div
+                                class="runsheet-break-marker absolute inset-y-0 flex items-center justify-center text-center text-[10px] font-black leading-[10px] whitespace-pre-line text-emerald-700"
+                                style={`left: calc((${leftSlots(bm)} + 0.68) * var(--runsheet-slot-width) - (var(--runsheet-marker-width) / 2)); width: var(--runsheet-marker-width);`}
+                                title={breakTitle(b)}
+                              >
+                                {actualSourceMarker(b.duration_minutes, b.actual_start_source)}
+                              </div>
+                            )}
+                          </>
                         );
                       })}
                   </div>
@@ -336,6 +359,6 @@ function formatShiftLength(startTime: string, endTime: string | null) {
   </div>
 
   <div class="runsheet-legend mt-2 text-xs text-slate-600">
-    Break marker legend: missing cover = stacked ? by duration · 15m = X · 30m = stacked X\nX · 60m = stacked X\nX\nX\nX
+    Break marker legend: missing cover = stacked ? by duration · planned break = stacked X by duration · actual taken source = stacked L (live) or M (manual) by duration
   </div>
 </section>

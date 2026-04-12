@@ -191,7 +191,7 @@ test('breaks-record-taken route persists actual break time', async () => {
 
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('Location'), '/admin/schedule/2026-04-07?panel=breaks&notice=Actual+break+time+recorded#breaks');
-  assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=? WHERE id=?') && run.args[0] === '09:12' && run.args[1] === 55));
+  assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=?, actual_start_source=? WHERE id=?') && run.args[0] === '09:12' && run.args[1] === 'manual' && run.args[2] === 55));
 });
 
 test('breaks-record-taken route supports taken-now stamping', async () => {
@@ -219,10 +219,10 @@ test('breaks-record-taken route supports taken-now stamping', async () => {
         returnTo: '/admin/schedule/2026-04-07?panel=breaks#breaks'
       })
     } as any);
-
+    
     assert.equal(response.status, 303);
     assert.equal(response.headers.get('Location'), '/admin/schedule/2026-04-07?panel=breaks&notice=Actual+break+time+set+to+now#breaks');
-    assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=? WHERE id=?') && run.args[0] === '10:34' && run.args[1] === 56));
+    assert.ok(db.runs.some((run) => run.sql.includes('UPDATE breaks SET actual_start_time=?, actual_start_source=? WHERE id=?') && run.args[0] === '10:34' && run.args[1] === 'live' && run.args[2] === 56));
   } finally {
     Intl.DateTimeFormat = realDateTimeFormat;
   }

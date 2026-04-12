@@ -85,6 +85,15 @@ function coverLabel(row: BreakRow) {
   if (row.cover_member_name) return row.cover_member_name;
   return areaCoveredByBreakId.get(row.id) ? 'Area covered' : 'Missing cover';
 }
+
+function stackedSourceIndicator(row: BreakTakenRow) {
+  const token = row.actual_source_label === 'L' || row.actual_source_label === 'M' ? row.actual_source_label : '';
+  if (!token) return '—';
+  if (row.duration_minutes <= 15) return token;
+  if (row.duration_minutes <= 30) return `${token}\n${token}`;
+  if (row.duration_minutes <= 45) return `${token}\n${token}\n${token}`;
+  return `${token}\n${token}\n${token}\n${token}`;
+}
 ---
 
 <Layout title={`${reportLabel} ${date} | Bunrun`}>
@@ -368,6 +377,7 @@ function coverLabel(row: BreakRow) {
                   <th class="px-3 py-2">Area</th>
                   <th class="px-3 py-2">Scheduled</th>
                   <th class="px-3 py-2">Actual</th>
+                  <th class="px-3 py-2">Type</th>
                   <th class="px-3 py-2">Variance</th>
                   <th class="px-3 py-2">Duration</th>
                   <th class="px-3 py-2">Cover</th>
@@ -380,6 +390,7 @@ function coverLabel(row: BreakRow) {
                     <td class="px-3 py-2">{areaByKey.get(row.off_area_key) ?? row.off_area_key}</td>
                     <td class="px-3 py-2">{row.start_time}</td>
                     <td class="px-3 py-2">{row.actual_start_time ?? '—'}</td>
+                    <td class="px-3 py-2 font-mono font-bold whitespace-pre-line text-emerald-700">{row.actual_start_time ? stackedSourceIndicator(row) : '—'}</td>
                     <td class:list={[
                       'px-3 py-2 font-medium',
                       row.variance_minutes == null ? 'text-slate-500' : row.variance_minutes === 0 ? 'text-emerald-700' : row.variance_minutes > 0 ? 'text-amber-700' : 'text-sky-700'

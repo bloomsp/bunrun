@@ -43,7 +43,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!target) return redirectWithMessage(returnTo, { error: 'Break not found' });
 
   if (clear) {
-    await DB.prepare('UPDATE breaks SET actual_start_time=NULL WHERE id=?').bind(breakId).run();
+    await DB.prepare('UPDATE breaks SET actual_start_time=NULL, actual_start_source=NULL WHERE id=?').bind(breakId).run();
     return redirectWithMessage(returnTo, { notice: 'Actual break time cleared' });
   }
 
@@ -65,7 +65,9 @@ export const POST: APIRoute = async ({ request }) => {
     return redirectWithMessage(returnTo, { error: 'Invalid time' });
   }
 
-  await DB.prepare('UPDATE breaks SET actual_start_time=? WHERE id=?').bind(actualStartTime, breakId).run();
+  await DB.prepare('UPDATE breaks SET actual_start_time=?, actual_start_source=? WHERE id=?')
+    .bind(actualStartTime, takenNow ? 'live' : 'manual', breakId)
+    .run();
 
   return redirectWithMessage(returnTo, { notice: takenNow ? 'Actual break time set to now' : 'Actual break time recorded' });
 };

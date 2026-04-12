@@ -31,6 +31,7 @@ export type BreakRow = {
   shift_id: number;
   start_time: string;
   actual_start_time: string | null;
+  actual_start_source: string | null;
   duration_minutes: number;
   cover_member_id: number | null;
   off_member_name: string;
@@ -42,6 +43,7 @@ export type BreakRow = {
 export type BreakTakenRow = BreakRow & {
   variance_minutes: number | null;
   timing_label: string;
+  actual_source_label: string;
 };
 
 export type BreakTakenSummary = {
@@ -80,7 +82,7 @@ export async function loadViewSchedulePageData(DB: D1Database, date: string) {
        ORDER BY s.home_area_key ASC, m.name COLLATE NOCASE ASC, s.start_time ASC`
     ).bind(scheduleId).all().then((result) => result.results as ShiftRow[]),
     DB.prepare(
-      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.actual_start_time, b.duration_minutes, b.cover_member_id,
+      `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.actual_start_time, b.actual_start_source, b.duration_minutes, b.cover_member_id,
               offm.name AS off_member_name, s.home_area_key AS off_area_key, coverm.name AS cover_member_name
        FROM breaks b
        JOIN shifts s ON s.id=b.shift_id
@@ -129,7 +131,8 @@ export async function loadViewSchedulePageData(DB: D1Database, date: string) {
       return {
         ...row,
         variance_minutes: variance,
-        timing_label: timingLabel
+        timing_label: timingLabel,
+        actual_source_label: row.actual_start_source === 'live' ? 'L' : row.actual_start_source === 'manual' ? 'M' : '—'
       };
     });
 

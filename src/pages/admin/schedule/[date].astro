@@ -62,6 +62,7 @@ type BreakRow = {
   shift_id: number;
   start_time: string;
   actual_start_time: string | null;
+  actual_start_source: string | null;
   duration_minutes: number;
   cover_member_id: number | null;
   cover_member_name: string | null;
@@ -132,7 +133,7 @@ try {
 ).bind(scheduleId).all()).results as ShiftRow[];
 
   breaks = (await DB.prepare(
-  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.actual_start_time, b.duration_minutes, b.cover_member_id,
+  `SELECT b.id, b.work_block_id, b.shift_id, b.start_time, b.actual_start_time, b.actual_start_source, b.duration_minutes, b.cover_member_id,
           coverm.name AS cover_member_name
    FROM breaks b
    JOIN shifts s ON s.id = b.shift_id
