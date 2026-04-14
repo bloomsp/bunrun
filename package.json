@@ -10,8 +10,10 @@
     "build": "node scripts/check-api-syntax.mjs && rm -rf node_modules/.vite .astro && astro build",
     "build:worker": "npm run build",
     "preview": "astro preview",
-    "preview:worker": "npm run build:worker && wrangler dev --config dist/server/wrangler.json",
-    "deploy:worker": "npm run build:worker && wrangler deploy --config dist/server/wrangler.json",
+    "prepare:worker-preview": "node scripts/prepare-worker-preview.mjs",
+    "migrate:worker-preview": "wrangler d1 migrations apply bunrun --config dist/server/wrangler.json",
+    "preview:worker": "rm -rf dist && npm run build:worker && npm run prepare:worker-preview && npm run migrate:worker-preview && wrangler dev --config dist/server/wrangler.json",
+    "deploy:worker": "npm run build:worker && npm run prepare:worker-preview && wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro",
     "generate-types": "wrangler types",
     "test": "node scripts/run-tests.mjs"

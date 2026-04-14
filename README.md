@@ -39,6 +39,24 @@ Set:
 npm run dev
 ```
 
+### Local Worker preview (recommended for real app testing)
+
+Bunrun depends on Cloudflare bindings such as D1, so plain `npm run dev` is not enough for end-to-end local testing.
+
+Use:
+
+```bash
+npm run preview:worker
+```
+
+This now automatically:
+- rebuilds from a clean `dist/`
+- copies `.dev.vars` into the generated Worker preview context
+- copies SQL migrations into the generated Worker preview context
+- applies local D1 migrations for the preview worker before starting Wrangler
+
+If you are only changing frontend code, `npm run dev` is still fine. If you need auth, D1, or real workflow behaviour, use `npm run preview:worker`.
+
 ### 4) Test
 
 ```bash
