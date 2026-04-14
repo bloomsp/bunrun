@@ -33,5 +33,8 @@
     "fast-glob": "^3.3.3",
     "vite": "^7.3.2",
     "wrangler": "^4.82.2"
+  },
+  "overrides": {
+    "defu": "6.1.7"
   }
 }
