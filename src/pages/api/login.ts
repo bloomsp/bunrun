@@ -12,7 +12,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const form = await request.formData();
-  const role = (form.get('role') || 'view').toString();
+  const role = (form.get('role') || 'team').toString();
   const password = (form.get('password') || '').toString().trim();
 
   // Env handling:
@@ -37,9 +37,10 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response('Server not configured (missing passwords)', { status: 500 });
   }
 
-  if (role !== 'view' && role !== 'admin') return badRequest('Unknown role');
+  if (role !== 'team' && role !== 'view' && role !== 'admin') return badRequest('Unknown role');
 
-  const ok = role === 'admin' ? password === adminPassword : password === viewPassword;
+  const normalizedRole = role === 'view' ? 'team' : role;
+  const ok = normalizedRole === 'admin' ? password === adminPassword : password === viewPassword;
   if (!ok) {
     return new Response('Incorrect password', { status: 401 });
   }
@@ -47,8 +48,8 @@ export const POST: APIRoute = async ({ request }) => {
   const headers = new Headers();
   const secureCookie = isSecureRequest(request);
   headers.append('Set-Cookie', clearRoleCookie({ secure: secureCookie }));
-  headers.append('Set-Cookie', cookieForRole(role, { secure: secureCookie }));
-  headers.set('Location', role === 'admin' ? '/admin' : '/view');
+  headers.append('Set-Cookie', cookieForRole(normalizedRole as 'team' | 'admin', { secure: secureCookie }));
+  headers.set('Location', normalizedRole === 'admin' ? '/admin' : '/breaks');
 
   return new Response(null, { status: 303, headers });
 };

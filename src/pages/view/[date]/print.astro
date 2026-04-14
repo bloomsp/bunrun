@@ -10,7 +10,7 @@ import { friendlyDbError } from '../../../lib/errors';
 import { formatDurationMinutes } from '../../../lib/time';
 import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow, type BreakTakenRow, type BreakTakenSummary } from '../../../lib/view-data';
 
-const guard = requireRole(Astro.request, 'view');
+const guard = requireRole(Astro.request, 'team');
 if (!guard.ok) return guard.redirect;
 
 const date = Astro.params.date ?? '';

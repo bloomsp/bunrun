@@ -10,6 +10,7 @@ const { title } = Astro.props;
 const currentRole = Astro.isPrerendered ? null : getRoleFromRequest(Astro.request);
 const pathname = Astro.url.pathname;
 const isAdmin = currentRole === 'admin';
+const isTeam = currentRole === 'team' || currentRole === 'admin';
 const adminLinks = [
   { href: '/admin/schedule', label: 'Schedule' },
   { href: '/admin/members', label: 'Members' },
@@ -39,9 +40,16 @@ const adminLinks = [
         </a>
         <div class="flex flex-wrap items-center justify-end gap-3 text-sm">
           <nav class="flex flex-wrap items-center gap-2">
-            <a class:list={['rounded-lg px-3 py-2 hover:bg-slate-100', pathname.startsWith('/view') ? 'bg-slate-100 text-slate-950' : 'text-slate-700 hover:text-slate-900']} href="/view">
-              View
-            </a>
+            {isTeam && (
+              <>
+                <a class:list={['rounded-lg px-3 py-2 hover:bg-slate-100', pathname.startsWith('/reports') || pathname.startsWith('/view') ? 'bg-slate-100 text-slate-950' : 'text-slate-700 hover:text-slate-900']} href="/view">
+                  Reports
+                </a>
+                <a class:list={['rounded-lg px-3 py-2 hover:bg-slate-100', pathname.startsWith('/breaks') ? 'bg-slate-100 text-slate-950' : 'text-slate-700 hover:text-slate-900']} href="/breaks">
+                  Breaks
+                </a>
+              </>
+            )}
             {isAdmin ? (
               adminLinks.map((link) => (
                 <a

@@ -1,0 +1,154 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import ErrorState from '../../components/ErrorState.astro';
+import { requireRole } from '../../lib/auth';
+import { getDB } from '../../lib/db';
+import { friendlyDbError } from '../../lib/errors';
+import { formatLongDateLabel } from '../../lib/schedule';
+import { ensureScheduleId } from '../../lib/schedule';
+
+const guard = requireRole(Astro.request, 'team');
+if (!guard.ok) return guard.redirect;
+
+const date = Astro.params.date ?? '';
+if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  return new Response('Invalid date', { status: 400 });
+}
+
+type BreakRow = {
+  id: number;
+  start_time: string;
+  actual_start_time: string | null;
+  actual_start_source: string | null;
+  duration_minutes: number;
+  off_member_name: string;
+  off_area_key: string;
+  cover_member_name: string | null;
+};
+
+let pageError: ReturnType<typeof friendlyDbError> | null = null;
+let breaks: BreakRow[] = [];
+let areas = new Map<string, string>();
+
+try {
+  const DB = await getDB();
+  const scheduleId = await ensureScheduleId(DB, date);
+  const areaRows = (await DB.prepare('SELECT key, label FROM areas').all()).results as Array<{ key: string; label: string }>;
+  areas = new Map(areaRows.map((row) => [row.key, row.label]));
+  breaks = (await DB.prepare(
+    `SELECT b.id, b.start_time, b.actual_start_time, b.actual_start_source, b.duration_minutes,
+            offm.name AS off_member_name, s.home_area_key AS off_area_key, coverm.name AS cover_member_name
+     FROM breaks b
+     JOIN shifts s ON s.id=b.shift_id
+     JOIN members offm ON offm.id=s.member_id
+     LEFT JOIN members coverm ON coverm.id=b.cover_member_id
+     WHERE s.schedule_id=?
+     ORDER BY b.start_time ASC, offm.name COLLATE NOCASE ASC`
+  ).bind(scheduleId).all()).results as BreakRow[];
+} catch (error) {
+  pageError = friendlyDbError(error);
+}
+
+const notice = Astro.url.searchParams.get('notice');
+const errorMsg = Astro.url.searchParams.get('error');
+const returnTo = `/breaks/${date}`;
+---
+
+<Layout title={`Breaks ${date} | Bunrun`}>
+  {pageError ? (
+    <div class="px-3 py-10">
+      <ErrorState title={pageError.title} message={pageError.message} details={pageError.details} />
+    </div>
+  ) : (
+    <div class="mx-auto max-w-5xl px-4 py-10">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight">Record breaks</h1>
+          <div class="mt-1 text-slate-700">{formatLongDateLabel(date)}</div>
+        </div>
+        <a class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" href="/breaks">Change date</a>
+      </div>
+
+      {errorMsg && <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">{errorMsg}</div>}
+      {notice && <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{notice}</div>}
+
+      <div class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-medium">Break recording</h2>
+            <p class="mt-1 text-sm text-slate-600">Team members can record actual break times here. Admins can use this page too.</p>
+          </div>
+          <div class="text-sm text-slate-500">{breaks.length} break{breaks.length === 1 ? '' : 's'}</div>
+        </div>
+
+        {breaks.length > 0 ? (
+          <div class="mt-4 overflow-x-auto">
+            <table class="w-full min-w-[980px] text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 text-left text-slate-600">
+                  <th class="px-3 py-2">Scheduled</th>
+                  <th class="px-3 py-2">Member</th>
+                  <th class="px-3 py-2">Area</th>
+                  <th class="px-3 py-2">Duration</th>
+                  <th class="px-3 py-2">Cover</th>
+                  <th class="px-3 py-2">Actual taken</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breaks.map((row) => {
+                  const actual = row.actual_start_time ?? row.start_time;
+                  const [hh = '', mm = ''] = actual.split(':');
+                  return (
+                    <tr class="border-b border-slate-100 last:border-b-0">
+                      <td class="px-3 py-2 font-medium">{row.start_time}</td>
+                      <td class="px-3 py-2">{row.off_member_name}</td>
+                      <td class="px-3 py-2">{areas.get(row.off_area_key) ?? row.off_area_key}</td>
+                      <td class="px-3 py-2">{row.duration_minutes}m</td>
+                      <td class="px-3 py-2">{row.cover_member_name ?? '—'}</td>
+                      <td class="px-3 py-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <form method="post" action="/api/breaks/record-taken" class="flex flex-wrap items-center gap-2">
+                            <input type="hidden" name="date" value={date} />
+                            <input type="hidden" name="breakId" value={row.id} />
+                            <input type="hidden" name="returnTo" value={returnTo} />
+                            <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="hh" min="0" max="23" value={hh} required />
+                            <span class="text-slate-600">:</span>
+                            <input class="w-16 rounded-lg border border-slate-300 bg-white px-2 py-2" type="number" name="mm" min="0" max="59" value={mm} required />
+                            <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">{row.actual_start_time ? 'Update' : 'Record'}</button>
+                          </form>
+                          <form method="post" action="/api/breaks/record-taken">
+                            <input type="hidden" name="date" value={date} />
+                            <input type="hidden" name="breakId" value={row.id} />
+                            <input type="hidden" name="takenNow" value="1" />
+                            <input type="hidden" name="returnTo" value={returnTo} />
+                            <button class="rounded-lg bg-emerald-700 px-3 py-2 font-medium text-white hover:bg-emerald-800" type="submit">Taken now</button>
+                          </form>
+                          {row.actual_start_time && (
+                            <form method="post" action="/api/breaks/record-taken">
+                              <input type="hidden" name="date" value={date} />
+                              <input type="hidden" name="breakId" value={row.id} />
+                              <input type="hidden" name="clear" value="1" />
+                              <input type="hidden" name="returnTo" value={returnTo} />
+                              <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 hover:bg-slate-50" type="submit">Clear</button>
+                            </form>
+                          )}
+                        </div>
+                        <div class="mt-1 text-xs text-slate-500">
+                          {row.actual_start_time ? `Recorded ${row.actual_start_time}${row.actual_start_source === 'live' ? ' [L]' : row.actual_start_source === 'manual' ? ' [M]' : ''}` : 'No actual break time recorded yet'}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div class="mt-4 text-sm text-slate-600">No breaks planned for this date.</div>
+        )}
+      </div>
+    </div>
+  )}
+</Layout>

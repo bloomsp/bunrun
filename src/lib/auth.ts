@@ -1,4 +1,4 @@
-export type AuthRole = 'view' | 'admin';
+export type AuthRole = 'team' | 'admin';
 
 const COOKIE_BASE = 'Path=/; HttpOnly; SameSite=Lax';
 
@@ -16,14 +16,15 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
 export function getRoleFromRequest(request: Request): AuthRole | null {
   const cookies = parseCookies(request.headers.get('cookie'));
   const role = cookies['bunrun_role'];
-  if (role === 'view' || role === 'admin') return role;
+  if (role === 'admin') return role;
+  if (role === 'team' || role === 'view') return 'team';
   return null;
 }
 
 export function requireRole(request: Request, role: AuthRole): { ok: true } | { ok: false; redirect: Response } {
   const current = getRoleFromRequest(request);
   if (!current) {
-    const to = role === 'admin' ? '/login/admin' : '/login/view';
+    const to = role === 'admin' ? '/login/admin' : '/login/team';
     // Use a relative redirect for maximum compatibility in the Pages/Workers runtime.
     return { ok: false, redirect: new Response(null, { status: 303, headers: { Location: to } }) };
   }

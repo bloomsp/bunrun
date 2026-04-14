@@ -11,7 +11,7 @@ import { formatDurationMinutes } from '../../lib/time';
 import { formatLongDateLabel, formatShortDateLabel } from '../../lib/schedule';
 import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow, type BreakTakenRow, type BreakTakenSummary } from '../../lib/view-data';
 
-const guard = requireRole(Astro.request, 'view');
+const guard = requireRole(Astro.request, 'team');
 if (!guard.ok) return guard.redirect;
 
 const date = Astro.params.date ?? '';
@@ -105,7 +105,7 @@ function stackedSourceIndicator(row: BreakTakenRow) {
   <div class="mx-auto max-w-[96rem] px-3 py-10">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Read-only schedule</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">Reports</h1>
         <div class="mt-1 text-slate-700">{formatLongDateLabel(date)}</div>
         <div class="mt-1 text-sm text-slate-500">Week of {weekStart}</div>
       </div>
