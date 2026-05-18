@@ -370,6 +370,12 @@ function formatShiftLength(startTime: string, endTime: string | null) {
                       );
                     })}
 
+                    {s.status_key !== 'sick' && isBreaksShift && coverAssignments.length === 0 && (
+                      <div class="absolute inset-x-3 top-[8px] flex h-[26px] items-center justify-center rounded-md border border-dashed border-violet-300 bg-violet-50/70 text-[11px] font-medium text-violet-800">
+                        No assigned break cover yet
+                      </div>
+                    )}
+
                     {s.status_key !== 'sick' &&
                       bks.map((b) => {
                         const bm = parseHHMM(b.start_time);
