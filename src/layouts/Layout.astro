@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import { getRoleFromRequest } from '../lib/auth';
+import pkg from '../../package.json';
 
 export interface Props {
   title: string;
@@ -9,6 +10,7 @@ export interface Props {
 const { title } = Astro.props;
 const currentRole = Astro.isPrerendered ? null : getRoleFromRequest(Astro.request);
 const pathname = Astro.url.pathname;
+const version = pkg.version;
 const isAdmin = currentRole === 'admin';
 const isTeam = currentRole === 'team' || currentRole === 'admin';
 const adminLinks = [
@@ -37,6 +39,7 @@ const adminLinks = [
         <a href="/" class="flex items-center gap-2 font-semibold tracking-tight">
           <img src="/brand/bunnings-favicon.ico" width="18" height="18" alt="Bunnings" class="h-[18px] w-[18px]" />
           <span>Bunrun</span>
+          <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">v{version}</span>
         </a>
         <div class="flex flex-wrap items-center justify-end gap-3 text-sm">
           <nav class="flex flex-wrap items-center gap-2">
