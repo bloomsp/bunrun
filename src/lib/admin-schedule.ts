@@ -5,6 +5,7 @@ import {
   type PlannerBreak,
   type PlannerContext
 } from './break-planner';
+import { normalizeShiftRole } from './shift-role';
 import { parseHHMM } from './time';
 
 export type WeekSummaryRow = {
@@ -84,11 +85,18 @@ export function coverCandidatesForBreak<TMember extends { id: number; name: stri
       const bRank = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       const targetRange = breakTargetRange(plannerBreak);
       const aFloater = targetRange
-        ? activeWorkingShiftForMember(input.planner, a.id, targetRange)?.shift_role === 'floater'
+        ? normalizeShiftRole(activeWorkingShiftForMember(input.planner, a.id, targetRange)?.shift_role) === 'floater'
         : false;
       const bFloater = targetRange
-        ? activeWorkingShiftForMember(input.planner, b.id, targetRange)?.shift_role === 'floater'
+        ? normalizeShiftRole(activeWorkingShiftForMember(input.planner, b.id, targetRange)?.shift_role) === 'floater'
         : false;
+      const aBreaks = targetRange
+        ? normalizeShiftRole(activeWorkingShiftForMember(input.planner, a.id, targetRange)?.shift_role) === 'breaks'
+        : false;
+      const bBreaks = targetRange
+        ? normalizeShiftRole(activeWorkingShiftForMember(input.planner, b.id, targetRange)?.shift_role) === 'breaks'
+        : false;
+      if (aBreaks !== bBreaks) return aBreaks ? -1 : 1;
       if (aFloater !== bFloater) return aFloater ? -1 : 1;
       if (aRank !== bRank) return aRank - bRank;
       const aSameArea = input.workingShifts.some((shift) => shift.member_id === a.id && shift.home_area_key === input.offShift.home_area_key);

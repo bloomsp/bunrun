@@ -12,6 +12,11 @@ function initShiftForm(form) {
   }
 
   const endTime = form.querySelector('input[data-bunrun-endtime]');
+  const startTimeInput = form.querySelector('input[data-bunrun-starttime]') || form.querySelector('input[name="startTime"]');
+  const roleSel = form.querySelector('select[data-bunrun-shift-role]') || form.querySelector('select[name="shiftRole"]');
+  const timeFields = form.querySelectorAll('[data-shift-time-field]');
+  const breaksRoleNote = form.querySelector('[data-breaks-role-note]');
+  const roleHelp = form.querySelector('[data-shift-role-help]');
   const addBtn = form.querySelector('[data-bunrun-add-shift]');
   if (endTime && addBtn) {
     endTime.addEventListener('blur', () => {
@@ -51,8 +56,41 @@ function initShiftForm(form) {
   };
 
   const validate = () => {
+    const isBreaksRole = roleSel?.value === 'breaks';
     const startVal = form.querySelector('input[name="startTime"]')?.value || '';
     const endVal = form.querySelector('input[name="endTime"]')?.value || '';
+
+    if (timeFields.length) {
+      timeFields.forEach((field) => field.classList.toggle('hidden', isBreaksRole));
+    }
+    if (breaksRoleNote) {
+      breaksRoleNote.classList.toggle('hidden', !isBreaksRole);
+    }
+    if (roleHelp) {
+      roleHelp.textContent = isBreaksRole
+        ? 'Breaks role automatically follows the scheduled breaks in the selected area.'
+        : roleSel?.value === 'floater'
+          ? 'Floaters are prioritised to cover other members where possible.'
+          : 'Normal shifts use the entered start and end time.';
+    }
+
+    if (startTimeInput) {
+      startTimeInput.disabled = isBreaksRole;
+      startTimeInput.required = !isBreaksRole;
+    }
+    if (endTime) {
+      endTime.disabled = isBreaksRole;
+      endTime.required = !isBreaksRole;
+      endTime.setCustomValidity('');
+    }
+
+    if (isBreaksRole) {
+      if (computedEl) {
+        computedEl.textContent = 'Coverage is derived from the scheduled breaks in the selected area.';
+      }
+      showMessage('', '');
+      return true;
+    }
 
     const s = parse(startVal);
     const e = parse(endVal);
@@ -97,6 +135,7 @@ function initShiftForm(form) {
   // Update computed line as user edits
   form.querySelector('input[name="startTime"]')?.addEventListener('input', validate);
   form.querySelector('input[name="endTime"]')?.addEventListener('input', validate);
+  roleSel?.addEventListener('change', validate);
 
   form.addEventListener('submit', (e) => {
     if (!validate()) {

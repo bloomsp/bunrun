@@ -1,5 +1,6 @@
 import { overlap, minutesRange } from './breaks';
 import { countWorkingShiftsByAreaInRange, firstActiveShiftInRange } from './shifts';
+import { isBreaksRole, normalizeShiftRole } from './shift-role';
 
 export type PlannerShift = {
   id: number;
@@ -167,6 +168,10 @@ function coverOptionScore(
     score -= 120;
   }
 
+  if (isBreaksRole(coverShift.shift_role) && coverShift.home_area_key === targetBreak.off_area_key) {
+    score -= 420;
+  }
+
   if (preferredRank == null) {
     score += 40;
   } else {
@@ -196,6 +201,7 @@ export function listEligibleCoverOptions(
     if (shift.status_key !== 'working') continue;
     if (shift.member_id === targetBreak.off_member_id) continue;
     if (activeWorkingShiftForMember(context, shift.member_id, target)?.id !== shift.id) continue;
+    if (isBreaksRole(shift.shift_role) && shift.home_area_key !== targetBreak.off_area_key) continue;
     if (shift.home_area_key !== targetBreak.off_area_key && !canMemberWorkArea(context, shift.member_id, targetBreak.off_area_key)) continue;
     if (hasCoverConflict(breaks, shift.member_id, target, targetBreak.id)) continue;
     if (violatesAreaMinimums(context, breaks, targetBreak, target, shift.member_id)) continue;
@@ -226,6 +232,7 @@ export function isCoverAssignmentValid(
   }
   const coverShift = activeWorkingShiftForMember(context, coverMemberId, target);
   if (!coverShift) return false;
+  if (isBreaksRole(coverShift.shift_role) && coverShift.home_area_key !== targetBreak.off_area_key) return false;
   if (coverShift.home_area_key !== targetBreak.off_area_key && !canMemberWorkArea(context, coverMemberId, targetBreak.off_area_key)) {
     return false;
   }

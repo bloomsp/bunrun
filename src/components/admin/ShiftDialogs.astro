@@ -68,26 +68,30 @@ const { date, members, areas, statuses } = Astro.props;
 
         <label class="block">
           <div class="text-sm font-medium text-slate-800">Role</div>
-          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+          <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole" data-bunrun-shift-role>
             <option value="normal" selected>Normal</option>
             <option value="floater">Floater</option>
+            <option value="breaks">Breaks</option>
           </select>
-          <div class="mt-1 text-xs text-slate-500">Floaters are prioritised to cover other members where possible.</div>
+          <div class="mt-1 text-xs text-slate-500" data-shift-role-help>Floaters are prioritised to cover other members where possible.</div>
         </label>
 
-        <label class="block">
+        <label class="block" data-shift-time-field="start">
           <div class="text-sm font-medium text-slate-800">Start</div>
-          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value="06:00" required step="60" />
+          <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" value="06:00" required step="60" data-bunrun-starttime />
         </label>
 
-        <label class="block">
+        <label class="block" data-shift-time-field="end">
           <div class="text-sm font-medium text-slate-800">End</div>
           <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" value="15:00" required step="60" data-bunrun-endtime />
         </label>
       </div>
     </div>
 
-    <div id="shiftComputed" class="mt-4 text-sm text-slate-600"></div>
+    <div id="shiftComputed" class="mt-4 text-sm text-slate-600" data-shift-computed></div>
+    <div class="mt-2 hidden rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-breaks-role-note>
+      Breaks role times are derived automatically from the scheduled breaks already added to the selected area.
+    </div>
 
     <div class="mt-6 flex justify-end gap-3">
       <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 hover:bg-slate-50" type="button" data-close-shift-dialog>Cancel</button>
@@ -129,21 +133,26 @@ const { date, members, areas, statuses } = Astro.props;
 
       <label class="block">
         <div class="text-sm font-medium text-slate-800">Role</div>
-        <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole">
+        <select class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" name="shiftRole" data-bunrun-shift-role>
           <option value="normal">Normal</option>
           <option value="floater">Floater</option>
+          <option value="breaks">Breaks</option>
         </select>
       </label>
 
-      <label class="block">
+      <label class="block" data-shift-time-field="start">
         <div class="text-sm font-medium text-slate-800">Start</div>
-        <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required step="60" />
+        <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="startTime" required step="60" data-bunrun-starttime />
       </label>
 
-      <label class="block">
+      <label class="block" data-shift-time-field="end">
         <div class="text-sm font-medium text-slate-800">End</div>
         <input class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" type="time" name="endTime" required step="60" data-bunrun-endtime />
       </label>
+    </div>
+
+    <div class="mt-2 hidden rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-breaks-role-note>
+      Breaks role times are derived automatically from the scheduled breaks already added to the selected area.
     </div>
 
     <div class="mt-5">

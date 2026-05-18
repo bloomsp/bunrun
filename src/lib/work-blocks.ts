@@ -1,4 +1,5 @@
 import { parseHHMM } from './time';
+import { isBreaksRole } from './shift-role';
 
 function workBlockTestHooks() {
   return (globalThis as any).__bunrunWorkBlockTestHooks as {
@@ -26,6 +27,7 @@ export type WorkBlockShift = {
   end_time: string | null;
   shift_minutes: number;
   work_block_id?: number | null;
+  shift_role?: string;
 };
 
 type PendingWorkBlock = {
@@ -50,7 +52,7 @@ export function activeShiftAtTime(shifts: WorkBlockShift[], memberId: number, ti
 
 export function buildPendingWorkBlocks(shifts: WorkBlockShift[]): PendingWorkBlock[] {
   const working = shifts
-    .filter((shift) => shift.status_key === 'working')
+    .filter((shift) => shift.status_key === 'working' && !isBreaksRole(shift.shift_role))
     .slice()
     .sort((a, b) =>
       a.member_id - b.member_id ||
@@ -97,6 +99,7 @@ export async function recomputeWorkBlocksForSchedule(DB: D1Database, scheduleId:
   const shifts = (
     await DB.prepare(
       `SELECT id, schedule_id, member_id, status_key, home_area_key, start_time, end_time, shift_minutes, work_block_id
+             , shift_role
        FROM shifts
        WHERE schedule_id=?
        ORDER BY member_id ASC, start_time ASC, id ASC`

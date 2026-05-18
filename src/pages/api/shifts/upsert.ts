@@ -7,7 +7,9 @@ import { ensureScheduleId } from '../../../lib/schedule';
 import { findOverlappingShift } from '../../../lib/shifts';
 import { assertMemberCanWorkArea } from '../../../lib/area-permissions';
 import { clearMemberBreakPlanForSchedule, recomputeWorkBlocksForSchedule } from '../../../lib/work-blocks';
+import { loadAreaBreakCoverageWindow, syncBreakAssignmentsForSchedule } from '../../../lib/breaks-role';
 import { getPositiveInt, getString, isISODate } from '../../../lib/http';
+import { isBreaksRole, normalizeShiftRole } from '../../../lib/shift-role';
 
 export const POST: APIRoute = async ({ request }) => {
   const guard = requireRole(request, 'admin');
@@ -18,7 +20,7 @@ export const POST: APIRoute = async ({ request }) => {
   const memberId = getPositiveInt(form, 'memberId');
   const homeAreaKey = getString(form, 'homeAreaKey');
   const statusKey = getString(form, 'statusKey');
-  const shiftRole = ((form.get('shiftRole') || 'normal').toString() === 'floater' ? 'floater' : 'normal');
+  const shiftRole = normalizeShiftRole((form.get('shiftRole') || 'normal').toString());
 
   const startTimeRaw = (form.get('startTime') || '').toString();
   const endTimeRaw = (form.get('endTime') || '').toString();
@@ -34,14 +36,6 @@ export const POST: APIRoute = async ({ request }) => {
   if (!isISODate(date)) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid date' });
   if (memberId == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid member' });
 
-  const startMin = parseHHMM(startTime);
-  const endMin = parseHHMM(endTime);
-  if (startMin == null || endMin == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid time' });
-  if (endMin <= startMin) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'End time must be after start time (same day).' });
-
-  const shiftMinutes = endMin - startMin;
-  if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift exceeds 10 hours max.' });
-
   const DB = await getDB();
   const permissionError = await assertMemberCanWorkArea(DB, memberId, homeAreaKey);
   if (permissionError) {
@@ -49,6 +43,37 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const scheduleId = await ensureScheduleId(DB, date);
+
+  let resolvedStartTime = startTime;
+  let resolvedEndTime = endTime;
+  let shiftMinutes = 0;
+  let startMin = parseHHMM(resolvedStartTime);
+  let endMin = parseHHMM(resolvedEndTime);
+
+  if (isBreaksRole(shiftRole)) {
+    const coverageWindow = await loadAreaBreakCoverageWindow(DB, scheduleId, homeAreaKey);
+    if (!coverageWindow) {
+      return redirectWithMessage(`/admin/schedule/${date}#shifts`, {
+        error: 'No scheduled breaks were found in that area. Add the breaks first, then assign a Breaks role.'
+      });
+    }
+    resolvedStartTime = coverageWindow.startTime;
+    resolvedEndTime = coverageWindow.endTime;
+    shiftMinutes = coverageWindow.shiftMinutes;
+    startMin = parseHHMM(resolvedStartTime);
+    endMin = parseHHMM(resolvedEndTime);
+  } else {
+    startMin = parseHHMM(startTime);
+    endMin = parseHHMM(endTime);
+    if (startMin == null || endMin == null) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid time' });
+    if (endMin <= startMin) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'End time must be after start time (same day).' });
+    shiftMinutes = endMin - startMin;
+    if (shiftMinutes > 10 * 60) return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Shift exceeds 10 hours max.' });
+  }
+
+  if (startMin == null || endMin == null || endMin <= startMin) {
+    return redirectWithMessage(`/admin/schedule/${date}#shifts`, { error: 'Invalid break coverage window for that area.' });
+  }
 
   const existingShifts = (
     await DB.prepare(
@@ -76,11 +101,16 @@ export const POST: APIRoute = async ({ request }) => {
     `INSERT INTO shifts (schedule_id, member_id, home_area_key, status_key, shift_role, start_time, end_time, shift_minutes)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(scheduleId, memberId, homeAreaKey, statusKey, shiftRole, startTime, endTime, shiftMinutes)
+    .bind(scheduleId, memberId, homeAreaKey, statusKey, shiftRole, resolvedStartTime, resolvedEndTime, shiftMinutes)
     .run();
 
   await recomputeWorkBlocksForSchedule(DB, scheduleId);
   await clearMemberBreakPlanForSchedule(DB, scheduleId, memberId);
+  await syncBreakAssignmentsForSchedule(DB, scheduleId, isBreaksRole(shiftRole) ? { prioritizeAreaKey: homeAreaKey } : undefined);
 
-  return redirectWithMessage(`/admin/schedule/${date}#shifts`, { notice: 'Shift added. Break plan cleared for that member.' });
+  return redirectWithMessage(`/admin/schedule/${date}#shifts`, {
+    notice: isBreaksRole(shiftRole)
+      ? 'Breaks role added and area break cover refreshed.'
+      : 'Shift added. Break plan cleared for that member.'
+  });
 };

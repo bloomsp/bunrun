@@ -10,6 +10,7 @@ import { friendlyDbError } from '../../lib/errors';
 import { formatDurationMinutes } from '../../lib/time';
 import { formatLongDateLabel, formatShortDateLabel } from '../../lib/schedule';
 import { REPORTS, loadViewSchedulePageData, type ReportKey, type BreakRow, type BreakTakenRow, type BreakTakenSummary } from '../../lib/view-data';
+import { shiftRoleLabel } from '../../lib/shift-role';
 
 const guard = requireRole(Astro.request, 'team');
 if (!guard.ok) return guard.redirect;
@@ -202,7 +203,7 @@ function stackedSourceIndicator(row: BreakTakenRow) {
                       <td class="px-3 py-2">{shift.start_time}</td>
                       <td class="px-3 py-2">{shift.end_time ?? '—'}</td>
                       <td class="px-3 py-2">{formatDurationMinutes(Number(shift.shift_minutes ?? 0))}</td>
-                      <td class="px-3 py-2">{shift.shift_role === 'floater' ? 'Floater' : 'Normal'}</td>
+                      <td class="px-3 py-2">{shiftRoleLabel(shift.shift_role)}</td>
                       <td class="px-3 py-2">{shift.status_key}</td>
                     </tr>
                   ))}
@@ -237,7 +238,7 @@ function stackedSourceIndicator(row: BreakTakenRow) {
                   <td class="px-3 py-2">{shift.start_time}</td>
                   <td class="px-3 py-2">{shift.end_time ?? '—'}</td>
                   <td class="px-3 py-2">{formatDurationMinutes(Number(shift.shift_minutes ?? 0))}</td>
-                  <td class="px-3 py-2">{shift.shift_role === 'floater' ? 'Floater' : 'Normal'}</td>
+                  <td class="px-3 py-2">{shiftRoleLabel(shift.shift_role)}</td>
                   <td class="px-3 py-2">{shift.status_key}</td>
                 </tr>
               ))}

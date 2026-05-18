@@ -24,6 +24,7 @@ import BreakTimeline from '../../../components/admin/BreakTimeline.astro';
 import BreakPlanningSummary from '../../../components/admin/BreakPlanningSummary.astro';
 import ShiftDialogs from '../../../components/admin/ShiftDialogs.astro';
 import BreakPlanningPanel from '../../../components/admin/BreakPlanningPanel.astro';
+import { shiftRoleLabel } from '../../../lib/shift-role';
 
 const guard = requireRole(Astro.request, 'admin');
 if (!guard.ok) return guard.redirect;
@@ -219,7 +220,7 @@ const shiftViews = shifts.map((s) => {
     computed_minutes: computedMinutes,
     warnings: endMinutes != null ? warningsForShift(s.start_time, s.end_time!, computedMinutes, op) : [],
     status_label: statusByKey.get(s.status_key)?.label ?? s.status_key,
-    role_label: s.shift_role === 'floater' ? 'Floater' : 'Normal',
+    role_label: shiftRoleLabel(s.shift_role),
     area_label: areaByKey.get(s.home_area_key)?.label ?? s.home_area_key,
     preferred_coverer_names: preferredCovererNamesByShift.get(s.id) ?? []
   } satisfies ShiftView;
