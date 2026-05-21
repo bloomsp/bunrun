@@ -624,6 +624,36 @@ For best results:
 4. Re-run break generation after major roster changes.
 5. Use the View reports for printouts and operational sharing.
 
+## Deployment and Admin Smoke-Test Checklist
+
+Use this checklist after a production deploy, database migration, password change, or major schedule/break-planning update.
+
+### Technical checks
+
+1. Open the production site and confirm the login page loads.
+2. Sign in with the view/team password and confirm the read-only daily view loads.
+3. Sign out, then sign in with the admin password and confirm `/admin` loads.
+4. Open the current week in `Schedule` and confirm the date navigation works.
+5. Open the View page and confirm the print/PDF page loads.
+
+### Admin workflow checks
+
+1. Create or open a low-risk test date rather than the active operating day.
+2. Add or update a test shift with area, status, role, start time, and end time.
+3. Confirm invalid entries are rejected, especially overlapping shifts for the same member.
+4. Open break planning and run `Auto-generate` for one work block.
+5. Confirm generated breaks attach to the correct active shift and area.
+6. Run `Auto-fix covers` and review any warnings.
+7. Mark a break as taken and confirm the Breaks Taken report shows the actual time.
+8. Delete or revert the test shift/breaks if they were only for smoke testing.
+
+### Data safety checks
+
+1. Confirm the D1 database binding is `DB` in Cloudflare.
+2. Confirm the Worker has `BUNRUN_VIEW_PASSWORD` and `BUNRUN_ADMIN_PASSWORD` configured.
+3. Confirm the `SESSION` KV binding exists if Cloudflare sessions are enabled by the build/runtime.
+4. Before large operational changes, make sure there is a recent D1 backup or export.
+
 ## Known Operational Behaviours
 
 - If shifts change for a member, their break plan for that day may be cleared and regenerated so stale break plans do not remain attached to the wrong work pattern.
