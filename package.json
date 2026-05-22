@@ -14,6 +14,7 @@
     "migrate:worker-preview": "wrangler d1 migrations apply bunrun --config dist/server/wrangler.json",
     "preview:worker": "rm -rf dist && npm run build:worker && npm run prepare:worker-preview && npm run migrate:worker-preview && wrangler dev --config dist/server/wrangler.json",
     "deploy:worker": "npm run build:worker && npm run prepare:worker-preview && wrangler deploy --config dist/server/wrangler.json",
+    "smoke:worker": "npm run prepare:worker-preview && node scripts/smoke-worker-preview.mjs",
     "astro": "astro",
     "generate-types": "wrangler types",
     "test": "node scripts/run-tests.mjs"

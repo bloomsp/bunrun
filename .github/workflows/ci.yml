@@ -31,3 +31,9 @@ jobs:
         env:
           BUNRUN_VIEW_PASSWORD: ci-view-password
           BUNRUN_ADMIN_PASSWORD: ci-admin-password
+
+      - name: Smoke-test Worker preview
+        run: npm run smoke:worker
+        env:
+          BUNRUN_VIEW_PASSWORD: ci-view-password
+          BUNRUN_ADMIN_PASSWORD: ci-admin-password
